@@ -106,6 +106,7 @@ async function seed(page) {
     await page.click("#vtog");
     await page.fill("#src", "# changed\n\nsaved from test");
     check(await page.isVisible("#save"), "Save appears once dirty");
+    await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(SHOTS, "app-412-edit.png") });
     await page.click("#save");
     await page.waitForSelector("#save", { state: "hidden" });
