@@ -58,6 +58,50 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - 檔名消毒 `safeName()`：去路徑、去控制字元與 `<>:"|?*`、截 120 字、沒副檔名或非 md/html/txt 補 `.md`，拿不到檔名用 `shared-YYYYMMDD-HHmm.md`。
 - 本機 `check` 用假資料夾走過分流、尾碼、消毒、清理、重整不重複、無資料夾等待，並用第二個來源的伺服器真的發動一次跨站表單 POST，確認 payload 只落在橫幅上、token 不符會被丟掉；中文檔名在 header 的 encode/decode 有驗。headless Linux Chromium 的 OPFS 開不了中文檔名（TypeMismatchError），是測試環境的怪癖，真實資料夾沒這問題。
 
+## Phase 3 候選：推上 imitator（評估過，沒做）
+
+**想法**：在手機上開了一份 HTML，一鍵推上 [imitator](https://github.com/clarencechien/imitator)（`PUT /v1/a/{slug}`），token 寫在設定裡。
+
+**結論：擋住了，而且卡在 imitator 側，Kaburi 這邊怎麼寫都不會通。**
+
+### 為什麼不通
+
+瀏覽器對跨來源請求會先問目的地伺服器同不同意（CORS preflight）。Kaburi 要送的請求，四個條件裡**任何一個**都會觸發 preflight：`PUT`、`Authorization`、`Content-Type: text/html`、`X-*` 自訂標頭。而 imitator 的 `worker/src/index.js` 對 `/v1/a/{slug}` 只允許 PUT 與 DELETE，其他方法回 `405 Allow: PUT, DELETE`，整份 `worker/src/` 沒有任何 `Access-Control-*`。所以 OPTIONS 拿不到許可，**PUT 根本不會發出去**。
+
+**而且那是刻意的。** imitator 的 `docs/spec.md` §8.5 與 `worker/src/artifacts.js` 的註解都說明：sandbox 過的 artifact 是 opaque origin、送 `Origin: null`，「Worker 不送 CORS header，所以讀不到 response body」——不送 CORS 正是它的隔離手段之一。
+
+curl 可以是因為它只跑你打的那一行，請求可歸責到一個人；瀏覽器同時跑幾千個來源的程式碼且分不出誰可信，所以決定權在伺服器手上。**安裝成 PWA 不改變這件事**：安裝換掉的是視窗、圖示、share target、file handlers，同源政策與 CORS 一個都沒變。
+
+### 為什麼不能只在 Kaburi 這邊解
+
+- `mode: 'no-cors'` 送不了 `Authorization` 與自訂標頭，回應也是 opaque，讀不到 `{slug, url}`
+- 表單 POST 送得出去但同樣帶不了那些標頭、也讀不到回應
+- 在 Kaburi 自己的網域架代理可行，但那等於 Kaburi 長出後端（違反現在的「沒有後端」），而且 token 得先交給那個代理，更差
+
+### 真要做的話
+
+imitator 側加一份**明確的來源白名單**，大約二十行，並且必須：只套用在 `/v1/a*`（不碰 `/r/` 與 `/join`）、不用 `*`、**不開 `Access-Control-Allow-Credentials`**（token 走標頭不走 cookie，開了會弱化讀取路徑）、帶 `Vary: Origin`。白名單能保住原本的性質：`Origin: null` 永遠比不中具體來源。
+
+### 就算通了，還有這些沒解決
+
+| 問題 | 細節 |
+|---|---|
+| slug 規則 | `/^[a-z0-9-]{1,64}$/`。檯面上的 `中文筆記.html` 沒有音譯就產不出合法 slug |
+| 覆寫是永久的 | R2 沒有 versioning，imitator spec §4.2 明寫「覆寫同一個 slug，舊的 HTML 就沒了」 |
+| 撞 slug | spec 自己說最可能的災難「不是惡意內鬼，是兩個自動發佈者撞到同一個 slug」——Kaburi 就會是那第二個。送出前必須先查、撞名要明確確認 |
+| token 範圍 | `imi_{gid}_{epoch}_{rand}` 只能寫自己組，但能 LIST 與 DELETE 該組全部。外洩的補救是輪替 `writeSecret`，那會殺掉該組所有 CLI token |
+| `X-Sandbox` | 必須寫死 `on`，UI 連選項都不要有 |
+| 讀回來要 cookie | `group` 可見度的讀取要 imitator 網域上的 `__Host-imi` cookie，沒走過 magic link 的裝置會看到 404，容易被誤判成發佈失敗 |
+
+### 安全上要付的代價
+
+- `connect-src` 要從 `'self'` 放寬，**會失去「就算真的有 XSS，資料也出不去」這個性質**
+- 儲存裡有了 token 之後，預覽 iframe 那條「`allow-scripts` 與 `allow-same-origin` 不能同時給」從規範升級成命脈——後面站著的是整組的報告庫
+
+### 還有一個架構問題
+
+交接文件開宗明義：「BentoDrop 運送、Kaburi 處理、SnapDeck 呈現。任何新功能先問它屬於哪一段，不屬於『處理』的一律不做。」**發佈報告屬於「呈現」**，照這條規矩應該擋掉。搜尋、標籤、多資料夾都是靠這條界線擋下來的，要不要為這個破例是產品決定，不是技術決定。
+
 ## 字級
 
 所有 `font-size` 都是 `rem`，根字級是 `app.css` 最上面的 `--type`：桌機 `1`（16px 基準），`max-width:600px` 的手機 `1.15`。要調整就改這兩個數字，其他不用動。閱讀區在桌機是 18px / 1.8。
@@ -105,6 +149,7 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 | 項目 | 狀態 | 原因 |
 |---|---|---|
 | 手動切換 app / tablet 的 chip | 等全螢幕鍵實機驗完 | 切不動才補，存 `kaburi.layout` |
+| 推上 imitator | 評估完，沒做 | 卡在 imitator 沒有 CORS 且那是刻意的。完整理由見上面「Phase 3 候選」一節 |
 
 **不做**：開資料夾外的檔案、多資料夾、刪檔、搜尋／標籤／版本／同步、便條加 AI、抽共用 render 元件。
 
