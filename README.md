@@ -72,6 +72,8 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 | 桌機安裝成 PWA、Chrome 122 持久權限 | 通過。重開時不帶手勢的 `requestPermission()` 靜默回 granted，不用再點；share target 零點擊 |
 | share target（phase 2 §10 的 1–5） | 通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
 
+**已修**：SW 離線退路只在殼的 cache 找（不會撈到 share cache）；stage 標題列長檔名換行兩行再裁，不再「…」；跨站 POST `/share` 在一般分頁一律要點一下。
+
 **待實機驗證**（交接文件 §9 尚未勾的）
 
 - Pixel：改名走 copy+delete，確認磁碟上真的變了
@@ -84,8 +86,7 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 | 項目 | 狀態 | 原因 |
 |---|---|---|
-| 手動切換 app / tablet 的 chip | 視需要 | 只有全螢幕鍵切不動時才補，存 `kaburi.layout` |
-| 標題列的檔名改成 rem 換行而非截斷 | 小 | 手機 412 寬長檔名會「…」，改名時仍是全名 |
+| 手動切換 app / tablet 的 chip | 等全螢幕鍵實機驗完 | 切不動才補，存 `kaburi.layout` |
 
 **不做**：開資料夾外的檔案、多資料夾、刪檔、搜尋／標籤／版本／同步、便條加 AI、抽共用 render 元件。
 

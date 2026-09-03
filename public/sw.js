@@ -56,6 +56,6 @@ self.addEventListener("fetch", (e) => {
     fetch(req).then((r) => {
       if (r.ok && !r.redirected) caches.open(VERSION).then((c) => c.put(key, r.clone()));
       return r;
-    }).catch(() => caches.match(key))
+    }).catch(() => caches.open(VERSION).then((c) => c.match(key)))   /* never fall back into the share cache */
   );
 });
