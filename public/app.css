@@ -224,12 +224,14 @@ main{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;position
 .ico:active{background:var(--raise)}
 .ico svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .fname{
-  flex:1;min-width:0;font-family:var(--mono);font-size:0.9688rem;
+  flex:1;min-width:0;font-family:var(--mono);font-size:0.9688rem;line-height:1.3;
   padding:5px 8px;border-radius:6px;text-align:left;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  overflow:hidden;word-break:break-all;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;   /* long names wrap to two lines, then clip */
 }
 .fname:active{background:var(--raise)}
 input.fname{
+  display:block;white-space:nowrap;
   border:1px solid var(--accent);background:var(--raise);outline:none;color:var(--tx);
   text-overflow:clip;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 15%,transparent);
 }

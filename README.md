@@ -50,7 +50,8 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - 檔案 → 寫進工作資料夾、出現在檯面最上面，不自動開啟。同名自動加 `-2`，不跳確認框。
 - 純文字／網址 → 開一張便條，切到便條分頁，不落地。
 - 流程：SW 攔 `POST /share`，把檔案與文字放進 `kaburi-share` cache，303 到 `/?share-target=1`；前景 `intakeShare()` 讀出來分流，做完清掉 cache 並把網址洗回 `/`，重整不會重複落檔。超過一小時的殘留在下次啟動時清掉。
-- 權限：資料夾權限還在就直接落；不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
+- 權限：在安裝的 app 視窗裡（standalone）且資料夾權限還在就直接落，零點擊；權限不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
+- **在一般瀏覽器分頁裡一律要點一下**：任何網站都能用表單 POST 到 `/share`，SW 分不出來源。真正的分享會開在 app 視窗，跨站 POST 只會落在對方的分頁，所以用 `display-mode` 當門檻，跨站 POST 拿不到零點擊寫檔。
 - 檔名消毒 `safeName()`：去路徑、去控制字元與 `<>:"|?*`、截 120 字、沒副檔名或非 md/html/txt 補 `.md`，拿不到檔名用 `shared-YYYYMMDD-HHmm.md`。
 - 本機 `check` 用假資料夾走過分流、尾碼、消毒、清理、重整不重複、無資料夾等待、SW 的 POST；中文檔名在 header 的 encode/decode 有驗。headless Linux Chromium 的 OPFS 開不了中文檔名（TypeMismatchError），是測試環境的怪癖，真實資料夾沒這問題。
 
@@ -71,6 +72,8 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 | 桌機安裝成 PWA、Chrome 122 持久權限 | 通過。重開時不帶手勢的 `requestPermission()` 靜默回 granted，不用再點；share target 零點擊 |
 | share target（phase 2 §10 的 1–5） | 通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
 
+**已修**：SW 離線退路只在殼的 cache 找（不會撈到 share cache）；stage 標題列長檔名換行兩行再裁，不再「…」；跨站 POST `/share` 在一般分頁一律要點一下。
+
 **待實機驗證**（交接文件 §9 尚未勾的）
 
 - Pixel：改名走 copy+delete，確認磁碟上真的變了
@@ -83,8 +86,7 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 | 項目 | 狀態 | 原因 |
 |---|---|---|
-| 手動切換 app / tablet 的 chip | 視需要 | 只有全螢幕鍵切不動時才補，存 `kaburi.layout` |
-| 標題列的檔名改成 rem 換行而非截斷 | 小 | 手機 412 寬長檔名會「…」，改名時仍是全名 |
+| 手動切換 app / tablet 的 chip | 等全螢幕鍵實機驗完 | 切不動才補，存 `kaburi.layout` |
 
 **不做**：開資料夾外的檔案、多資料夾、刪檔、搜尋／標籤／版本／同步、便條加 AI、抽共用 render 元件。
 

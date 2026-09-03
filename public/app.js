@@ -668,6 +668,12 @@ async function readShareMeta() {
  } catch (e) { return null; }
 }
 async function clearShare() { try { await caches.delete(SHARE_CACHE); } catch (e) {} }
+/* A real share opens the installed app window (standalone / overlay / fullscreen). A cross-site form POST
+   to /share lands in a plain browser tab instead, so in a tab the files always wait for a tap. */
+function launchedAsApp() {
+ if (LOCAL && window.__kaburiDisplayMode) return window.__kaburiDisplayMode !== "browser";
+ return !window.matchMedia("(display-mode: browser)").matches;
+}
 
 function paintIntake() {
  var bar = $("intake");
@@ -696,7 +702,7 @@ async function intakeShare() {
     names.push(safeName(raw) || stampName());
    }
    intake = {count: meta.count, names: names};
-   if (folderState === "ready") { await landFiles(); }
+   if (folderState === "ready" && launchedAsApp()) { await landFiles(); }
    else { paintIntake(); }
   } else if (meta.text) {
    showTab("notes");
