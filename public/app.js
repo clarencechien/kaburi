@@ -477,8 +477,11 @@ async function renameFile(f, newName) {
    catch (e) { console.warn("move() refused, falling back to copy+delete:", e); }
   }
   if (!via) {
-   var text = await (await f.handle.getFile()).text();
    var nh = await dirHandle.getFileHandle(newName, {create: true});
+   /* case-insensitive filesystems hand back the very same file for "a.md" → "A.md";
+      deleting "a.md" afterwards would delete the only copy */
+   if (await nh.isSameEntry(f.handle)) { flash(t("badName")); return false; }
+   var text = await (await f.handle.getFile()).text();
    var w = await nh.createWritable(); await w.write(text); await w.close();
    await dirHandle.removeEntry(old);
    f.handle = nh; via = "copy+delete";
