@@ -78,6 +78,8 @@ async function seed(page) {
     page.on("pageerror", (e) => errors.push(String(e)));
     const resp = await page.goto(base + "/");
     check(/frame-ancestors 'none'/.test(resp.headers()["content-security-policy"] || ""), "CSP header served");
+    check(await page.$eval("#toast", (e) => e.getAttribute("role") === "status" && e.getAttribute("aria-live") === "polite" && e.textContent === ""),
+      "toast is a permanent, empty live region at boot");
     await page.evaluate(() => localStorage.clear());
     await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "none");
     check(await page.isVisible("#pick"), "empty state shows Choose a folder");
@@ -183,6 +185,20 @@ async function seed(page) {
     await page.evaluate(async () => { const d = await navigator.storage.getDirectory(); const h = await d.getFileHandle("scratch.txt"); const w = await h.createWritable(); await w.write("edited outside"); await w.close(); await window.__kaburi.scan(); });
     await page.waitForTimeout(100);
     check(await page.isVisible(".slice:has-text('scratch.txt')"), "externally edited file heals back onto the counter");
+
+    /* the swipe is not the only way off the counter */
+    await page.focus(".slice:has-text('notes-0903.md')");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(250);
+    check(!(await page.isVisible(".slice:has-text('notes-0903.md')")), "arrow key stows the focused row");
+    check(await page.evaluate(() => !!document.activeElement && document.activeElement.classList.contains("slice")), "focus stays in the list after stowing");
+    check((await page.$eval("#toast", (e) => e.textContent)).length > 0, "the live region carries the confirmation");
+    await page.click("#scope");
+    await page.focus(".slice:has-text('notes-0903.md')");
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForTimeout(250);
+    check(!(await page.$eval(".slice:has-text('notes-0903.md')", (e) => e.classList.contains("stowed"))), "arrow key brings the row back");
+    await page.click("#scope");
 
     /* share target intake: files land in the folder, text becomes a note */
     async function park(files, text) {
