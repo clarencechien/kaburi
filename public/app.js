@@ -138,7 +138,7 @@ function idbSet(k, v) {
 
 /* js: folder */
 var dirHandle = null, FILES = [], RECENT = 5, expanded = false;
-var folderState = HAS_FS ? "none" : "unsupported";   /* none | needauth | ready | unsupported */
+var folderState = HAS_FS ? "restoring" : "unsupported";   /* restoring | none | needauth | ready | unsupported */
 var EXT = {md: "md", markdown: "md", txt: "txt", html: "html", htm: "html"};
 function kindOf(name) { var m = /\.([a-z0-9]+)$/i.exec(name); return m ? (EXT[m[1].toLowerCase()] || null) : null; }
 function fmtSize(n) {
@@ -196,7 +196,7 @@ async function reauth() {
 }
 async function restoreDir() {
  var h = await idbGet("dir");
- if (!h) return;
+ if (!h) { folderState = "none"; return; }
  dirHandle = h;
  try {
   var p = await h.queryPermission({mode: "readwrite"});
@@ -291,7 +291,7 @@ function clockOf(ts) {
 
 function paintStatus() {
  var wd = $("wd");
- wd.textContent = dirHandle ? (dirHandle.name || "/") : t("noFolder");
+ wd.textContent = dirHandle ? (dirHandle.name || "/") : (folderState === "restoring" ? "" : t("noFolder"));
  wd.title = t("changeFolder");
  wd.classList.toggle("none", !dirHandle);
  wd.disabled = !HAS_FS;
@@ -356,6 +356,7 @@ function paintList() {
  var scope = $("scope");
  if (folderState !== "ready") {
   scope.hidden = true;
+  if (folderState === "restoring") return;   /* handle + permission still coming back; no flash of empty state */
   if (folderState === "unsupported") { h.appendChild(emptyPane("")).textContent = t("unsupported"); return; }
   if (folderState === "needauth") {
    var e = emptyPane("<b></b><span></span><br><button class=\"btn\" id=\"reauth\"></button>");
