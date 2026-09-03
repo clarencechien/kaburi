@@ -162,16 +162,31 @@ async function seed(page) {
 
     /* share target intake: files land in the folder, text becomes a note */
     async function park(files, text) {
-      await page.evaluate(async ({ files, text }) => {
+      const nonce = "tok-" + Math.random().toString(36).slice(2) + "-" + Date.now();
+      await page.evaluate(async ({ files, text, nonce }) => {
         const c = await caches.open("kaburi-share");
-        await c.put("/__share/meta", new Response(JSON.stringify({ count: files.length, text, at: Date.now() })));
+        await c.put("/__share/meta", new Response(JSON.stringify({ count: files.length, text, at: Date.now(), nonce })));
         for (let i = 0; i < files.length; i++) await c.put("/__share/file-" + i, new Response(files[i][1], { headers: { "x-kaburi-name": encodeURIComponent(files[i][0]) } }));
-      }, { files, text });
+      }, { files, text, nonce });
+      return nonce;
     }
     const onDisk = async () => page.evaluate(async () => { const d = await navigator.storage.getDirectory(); const n = []; for await (const [k] of d.entries()) n.push(k); return n; });
-    await park([["scratch.txt", "shared body"], ["my notes 2.md", "# spaced"], ["../../evil<>.md", "x"], ["noext", "y"]], "");
+    /* a payload parked by someone else's POST is not drainable by a different launch */
+    await park([["forged.md", "x"]], "");
+    await page.goto(base + "/?share-target=not-the-token");
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && location.search === "");
+    await page.waitForTimeout(200);
+    check(!(await onDisk()).includes("forged.md") && !(await page.evaluate(() => !!window.__kaburi.intake())), "wrong launch token: payload is not drained");
+    check(await page.evaluate(async () => !(await caches.has("kaburi-share"))), "wrong launch token: payload is dropped, never left armed");
+    await park([["forged.md", "x"]], "");
+    await page.goto(base + "/");
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready");
+    await page.waitForTimeout(200);
+    check(!(await onDisk()).includes("forged.md") && await page.evaluate(async () => !(await caches.has("kaburi-share"))), "plain launch drops a parked payload instead of draining it");
+
+    let tok = await park([["scratch.txt", "shared body"], ["my notes 2.md", "# spaced"], ["../../evil<>.md", "x"], ["noext", "y"]], "");
     /* headless Chromium is a plain tab: files must wait for a tap even though permission is held */
-    await page.goto(base + "/?share-target=1");
+    await page.goto(base + "/?share-target=" + tok);
     await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && location.search === "" && window.__kaburi.intake());
     check(!(await page.$eval("#intake", (e) => e.hidden)), "browser tab: shared files wait on the intake strip, no unattended write");
     check(!(await onDisk()).includes("scratch-2.txt"), "nothing written before the tap");
@@ -183,8 +198,8 @@ async function seed(page) {
     /* installed app window: zero-click */
     await page.evaluate(async () => { const d = await navigator.storage.getDirectory(); for (const n of ["scratch-2.txt", "my notes 2.md", "evil.md", "noext.md"]) { try { await d.removeEntry(n); } catch (e) {} } });
     await page.addInitScript(() => { window.__kaburiDisplayMode = "standalone"; });
-    await park([["scratch.txt", "shared body"], ["my notes 2.md", "# spaced"], ["../../evil<>.md", "x"], ["noext", "y"]], "");
-    await page.goto(base + "/?share-target=1");
+    tok = await park([["scratch.txt", "shared body"], ["my notes 2.md", "# spaced"], ["../../evil<>.md", "x"], ["noext", "y"]], "");
+    await page.goto(base + "/?share-target=" + tok);
     await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && location.search === "" && !window.__kaburi.intake());
     await page.waitForTimeout(300);
     disk2 = await onDisk();
@@ -197,15 +212,15 @@ async function seed(page) {
     check(await page.evaluate(() => location.search === "" && !document.getElementById("intake").hidden === false), "url cleaned, intake bar hidden");
     await page.reload(); await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready");
     check((await onDisk()).filter((n) => n.startsWith("scratch")).length === 2, "reload does not land again");
-    await park([], "sk-ant-shared\nhttps://example.com");
-    await page.goto(base + "/?share-target=1");
+    tok = await park([], "sk-ant-shared\nhttps://example.com");
+    await page.goto(base + "/?share-target=" + tok);
     await page.waitForFunction(() => window.__kaburi && location.search === "");
     check(await page.evaluate(() => window.__kaburi.notes().length === 1 && window.__kaburi.notes()[0].text.includes("example.com")), "shared text becomes a note");
     check(await page.$eval("#tab-notes", (e) => e.getAttribute("aria-selected")) === "true", "text share opens the notes tab");
     /* no folder yet: intake bar waits, cache kept */
     await page.evaluate(async () => { indexedDB.deleteDatabase("kaburi"); });
-    await park([["later.md", "later"]], "");
-    await page.goto(base + "/?share-target=1");
+    tok = await park([["later.md", "later"]], "");
+    await page.goto(base + "/?share-target=" + tok);
     await page.waitForFunction(() => window.__kaburi && location.search === "" && window.__kaburi.intake());
     check(!(await page.$eval("#intake", (e) => e.hidden)) && /later\.md/.test(await page.$eval("#intakeNames", (e) => e.textContent)), "no folder: intake bar lists the file and waits");
     check(await page.evaluate(async () => await caches.has("kaburi-share")), "cache kept while waiting for a folder");
@@ -266,15 +281,35 @@ async function seed(page) {
     });
     await page.reload();
     check(keys.includes("/") && keys.includes("/app.js"), "sw precached the shell " + JSON.stringify(keys));
+    /* Drive the worker the way the attack does: a form POST from a different origin.
+       Our own CSP (form-action 'none') forbids submitting such a form from a Kaburi page. */
+    const navs = [];
+    page.on("framenavigated", (f) => { if (f === page.mainFrame()) navs.push(f.url()); });
+    check(await page.evaluate(async () => (await fetch("/share", { method: "POST", body: new FormData() })).status) === 404,
+      "a non-navigation POST to /share is not treated as a share");
+    const evil = http.createServer((q, r) => {
+      r.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      r.end('<!doctype html><meta charset="utf-8"><form id="f" method="POST" enctype="multipart/form-data" action="' + base + '/share">' +
+        '<input type="file" name="files"><input name="title" value="T"><input name="url" value="https://x.test"></form>' +
+        '<script>const dt=new DataTransfer();dt.items.add(new File(["# hi"],"\u4e2d\u6587\u7b46\u8a18.md",{type:"text/markdown"}));' +
+        'f.files.files=dt.files;setTimeout(()=>f.submit(),0);<\/script>');
+    });
+    await new Promise((r) => evil.listen(0, "127.0.0.1", r));
+    await page.goto(`http://127.0.0.1:${evil.address().port}/`);
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.intake(), null, { timeout: 20000 });
     const meta = await page.evaluate(async () => {
-      const fd = new FormData(); fd.append("title", "T"); fd.append("url", "https://x.test"); fd.append("files", new File(["# hi"], "中文筆記.md", { type: "text/markdown" }));
-      const r = await fetch("/share", { method: "POST", body: fd });
       const c = await caches.open("kaburi-share");
       const m = await (await c.match("/__share/meta")).json();
       const f = await c.match("/__share/file-0");
-      return { url: r.url, m, name: f && decodeURIComponent(f.headers.get("x-kaburi-name")), body: f && await f.text() };
+      return { m, name: f && decodeURIComponent(f.headers.get("x-kaburi-name")), body: f && await f.text() };
     });
-    check(/share-target=1/.test(meta.url) && meta.m.count === 1 && meta.m.text === "T\nhttps://x.test" && meta.name === "中文筆記.md" && meta.body === "# hi", "sw parks POST /share into the share cache, CJK name round-trips " + JSON.stringify(meta));
+    check(meta.m.count === 1 && meta.m.text === "T\nhttps://x.test" && meta.name === "中文筆記.md" && meta.body === "# hi",
+      "sw parks a navigational POST /share, CJK name round-trips " + JSON.stringify(meta));
+    check(!!meta.m.nonce && navs.some((u) => u.includes("share-target=" + encodeURIComponent(meta.m.nonce))),
+      "the redirect carries the payload's own launch token");
+    check(!(await page.$eval("#intake", (e) => e.hidden)), "a cross-site POST lands on the intake strip, never written unattended");
+    evil.close();
+
     await ctx.setOffline(true);
     const r = await page.reload().catch(() => null);
     check(!!r && (await page.isVisible(".wordmark")), "shell loads offline");
