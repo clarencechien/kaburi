@@ -74,13 +74,46 @@ curl 可以是因為它只跑你打的那一行，請求可歸責到一個人；
 
 ### 為什麼不能只在 Kaburi 這邊解
 
-- `mode: 'no-cors'` 送不了 `Authorization` 與自訂標頭，回應也是 opaque，讀不到 `{slug, url}`
+- `mode: 'no-cors'` 送不了 `Authorization` 與自訂標頭，回應也是 opaque
 - 表單 POST 送得出去但同樣帶不了那些標頭、也讀不到回應
-- 在 Kaburi 自己的網域架代理可行，但那等於 Kaburi 長出後端（違反現在的「沒有後端」），而且 token 得先交給那個代理，更差
 
-### 真要做的話
+### 評估過的五條路
 
-imitator 側加一份**明確的來源白名單**，大約二十行，並且必須：只套用在 `/v1/a*`（不碰 `/r/` 與 `/join`）、不用 `*`、**不開 `Access-Control-Allow-Credentials`**（token 走標頭不走 cookie，開了會弱化讀取路徑）、帶 `Vary: Origin`。白名單能保住原本的性質：`Origin: null` 永遠比不中具體來源。
+**1. imitator 變成可安裝的 PWA + share target，Kaburi 用 `navigator.share({files})`** ← 目前最好的答案
+
+Kaburi 不發佈，只把檔案交出去；imitator 在**自己的來源**收下（就是 Kaburi phase 2 那套 SW 攔 POST 的機制），用自己的憑證 PUT。
+
+- Kaburi 這邊：不存 token、不改 CSP、不長後端、不碰 CORS。憑證住在擁有那個服務的 app 裡，本來就該如此
+- imitator 這邊：加 manifest + SW + 一個接收頁。比 CORS 白名單大，但是**純加法，一個既有的安全性質都不用動**（CORS 照樣不送、sandbox 隔離照樣成立）
+- 而且它剛好符合交接文件的分工：Kaburi 處理完交棒，發佈是 imitator 的事，Kaburi 沒有長出「呈現」的功能
+- **待驗證**：`navigator.canShare({files})` 對 `text/html` 是否回 true（Chrome 對可分享的檔案類型有白名單）。這是唯一的技術未知，只能實機驗
+
+**2. imitator 加 CORS 來源白名單**（約 20 行）
+
+只套用在 `/v1/a*`（不碰 `/r/` 與 `/join`）、不用 `*`、**不開 `Access-Control-Allow-Credentials`**、帶 `Vary: Origin`。白名單能保住原本的性質：`Origin: null` 永遠比不中具體來源。代價是 token 要住在 Kaburi 的瀏覽器儲存裡。
+
+**3. Kaburi 長出自己的 Worker**
+
+CORS 問題會完全消失（伺服器到伺服器不受 CORS 約束），而且 imitator 一行都不用改。但 token 放哪裡差很多：
+
+| | 結果 |
+|---|---|
+| (a) token 留在瀏覽器，Worker 只轉發 | 最糟。風險一個沒少，只是多繞一段。不要 |
+| (b) token 放 Worker 的 secret | XSS 與遺失的手機都偷不到憑證。**但 `POST /api/publish` 就變成「用你的 token 發佈」的公開端點——confused deputy**，別人不需要你的 token，借用你的 Worker 就行 |
+
+所以 (b) 一定要做認證，而選項都有代價：瀏覽器存一把 Kaburi 專用 key（又是 token 在瀏覽器，但爆炸半徑只剩「透過我的 Worker 發佈」，不能 LIST／DELETE，輪替也不碰 imitator 那組——合理的折衷）；cookie + magic link（等於重寫 imitator spec §5）；Cloudflare Access 擋 `/api/*`（不用寫程式，但 Access 靠轉址到登入頁，`fetch()` 跟不了互動式轉址，要繞得用 service token，又是 token）。另外那個端點得自己做限速，否則等於把寫入能力放上公開網路。
+
+**代價**：破壞「沒有後端」。那不是裝飾——它是為什麼 CSP 能設 `default-src 'none'`、為什麼整個 app 讀四個檔就能審完。加了之後每一份發佈的 HTML 都會經過自己寫的伺服器程式碼，「不落地」也變模糊。
+
+**4. 什麼都不做**（現在就可用的基準線）
+
+檔案本來就在磁碟上的資料夾裡，任何上傳介面的檔案選擇器都拿得到——imitator 的 `inbox/` 加 GitHub 網頁版在手機上已經能用。缺的只有「一鍵」。**Kaburi 的工作其實已經做完了**，這是評估其他選項時該對照的基準。
+
+**5. 已評估並否決**
+
+- **用「簡單請求」繞過 preflight**：改成 `POST` + `Content-Type: text/plain`、token 放 body、不帶自訂標頭，這樣不會觸發 preflight，寫入真的會成功，而 slug 是 Kaburi 自己選的所以不需要讀回應。但 `no-cors` 的回應是 opaque，**500 和 200 分不出來**——對一個永久覆寫的操作，盲目發佈不可接受。而且 imitator 會失去「瀏覽器碰不到我的寫入 API」這個性質
+- **`window.open` + `postMessage` 傳 File**：structured clone 帶得動 File，但手機上會被彈窗阻擋，且對方一旦設了 COOP 就斷掉，太脆弱
+- **一次性上傳網址（presigned）**：誰來簽？簽的那次呼叫本身就要認證，雞生蛋
 
 ### 就算通了，還有這些沒解決
 
@@ -100,7 +133,9 @@ imitator 側加一份**明確的來源白名單**，大約二十行，並且必�
 
 ### 還有一個架構問題
 
-交接文件開宗明義：「BentoDrop 運送、Kaburi 處理、SnapDeck 呈現。任何新功能先問它屬於哪一段，不屬於『處理』的一律不做。」**發佈報告屬於「呈現」**，照這條規矩應該擋掉。搜尋、標籤、多資料夾都是靠這條界線擋下來的，要不要為這個破例是產品決定，不是技術決定。
+交接文件開宗明義：「BentoDrop 運送、Kaburi 處理、SnapDeck 呈現。任何新功能先問它屬於哪一段，不屬於『處理』的一律不做。」**發佈報告屬於「呈現」**，照這條規矩應該擋掉。搜尋、標籤、多資料夾都是靠這條界線擋下來的。
+
+值得注意的是，上面第 1 條（share target）是唯一不牴觸這條界線的作法：Kaburi 只是把檔案交出去，沒有長出發佈能力。其餘每一條都是在 Kaburi 裡蓋一個發佈器。
 
 ## 字級
 
