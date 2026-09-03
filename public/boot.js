@@ -3,11 +3,11 @@
   "use strict";
   var root = document.documentElement;
 
-  /* The *.pages.dev production alias is not a real front door. Send it to the custom domain.
-     Preview deployments (<hash>.<project>.pages.dev) have four labels and are left alone. */
+  /* Cloudflare's own hostnames are not a front door. workers.dev is switched off in wrangler.jsonc;
+     this catches it (and a pages.dev alias) anyway and sends the visitor to the custom domain. */
   var CANON = "kaburi.ai-apps.work";
   var host = location.hostname;
-  if (/^[^.]+\.pages\.dev$/.test(host) && host !== CANON) {
+  if (/\.(workers|pages)\.dev$/.test(host) && host !== CANON) {
     location.replace("https://" + CANON + location.pathname + location.search + location.hash);
     return;
   }
