@@ -160,6 +160,45 @@ async function seed(page) {
     await page.waitForTimeout(100);
     check(await page.isVisible(".slice:has-text('scratch.txt')"), "externally edited file heals back onto the counter");
 
+    /* share target intake: files land in the folder, text becomes a note */
+    async function park(files, text) {
+      await page.evaluate(async ({ files, text }) => {
+        const c = await caches.open("kaburi-share");
+        await c.put("/__share/meta", new Response(JSON.stringify({ count: files.length, text, at: Date.now() })));
+        for (let i = 0; i < files.length; i++) await c.put("/__share/file-" + i, new Response(files[i][1], { headers: { "x-kaburi-name": encodeURIComponent(files[i][0]) } }));
+      }, { files, text });
+    }
+    const onDisk = async () => page.evaluate(async () => { const d = await navigator.storage.getDirectory(); const n = []; for await (const [k] of d.entries()) n.push(k); return n; });
+    await park([["scratch.txt", "shared body"], ["my notes 2.md", "# spaced"], ["../../evil<>.md", "x"], ["noext", "y"]], "");
+    await page.goto(base + "/?share-target=1");
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && location.search === "");
+    await page.waitForTimeout(400);
+    let disk2 = await onDisk();
+    check(disk2.includes("scratch-2.txt") && disk2.includes("scratch.txt"), "shared duplicate gets -2 suffix, original untouched " + JSON.stringify(disk2));
+    check(disk2.includes("my notes 2.md"), "spaces in a shared name survive the header round trip");
+    check(disk2.includes("evil.md") && !disk2.some((n) => n.includes("..")), "path bits and control chars stripped");
+    check(disk2.includes("noext.md"), "extension-less share becomes .md");
+    check(await page.evaluate(async () => !(await caches.has("kaburi-share"))), "share cache cleared after landing");
+    check(await page.evaluate(() => location.search === "" && !document.getElementById("intake").hidden === false), "url cleaned, intake bar hidden");
+    await page.reload(); await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready");
+    check((await onDisk()).filter((n) => n.startsWith("scratch")).length === 2, "reload does not land again");
+    await park([], "sk-ant-shared\nhttps://example.com");
+    await page.goto(base + "/?share-target=1");
+    await page.waitForFunction(() => window.__kaburi && location.search === "");
+    check(await page.evaluate(() => window.__kaburi.notes().length === 1 && window.__kaburi.notes()[0].text.includes("example.com")), "shared text becomes a note");
+    check(await page.$eval("#tab-notes", (e) => e.getAttribute("aria-selected")) === "true", "text share opens the notes tab");
+    /* no folder yet: intake bar waits, cache kept */
+    await page.evaluate(async () => { indexedDB.deleteDatabase("kaburi"); });
+    await park([["later.md", "later"]], "");
+    await page.goto(base + "/?share-target=1");
+    await page.waitForFunction(() => window.__kaburi && location.search === "" && window.__kaburi.intake());
+    check(!(await page.$eval("#intake", (e) => e.hidden)) && /later\.md/.test(await page.$eval("#intakeNames", (e) => e.textContent)), "no folder: intake bar lists the file and waits");
+    check(await page.evaluate(async () => await caches.has("kaburi-share")), "cache kept while waiting for a folder");
+    await page.evaluate(async () => { await window.__kaburi.useDir(await navigator.storage.getDirectory()); });
+    await page.waitForFunction(() => !window.__kaburi.intake());
+    check((await onDisk()).includes("later.md"), "choosing a folder lands the waiting file");
+    await page.click("#tab-files");
+
     /* notes: memory only */
     await page.click("#tab-notes"); await page.click("#add");
     await page.fill(".note textarea", "sk-ant-xxx");
@@ -204,7 +243,7 @@ async function seed(page) {
     const keys = await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
       for (let i = 0; i < 100; i++) {
-        const c = await caches.open("kaburi-v2"); const k = await c.keys();
+        const c = await caches.open("kaburi-v3"); const k = await c.keys();
         if (k.length >= 8 && navigator.serviceWorker.controller) return k.map((r) => new URL(r.url).pathname);
         await new Promise((r) => setTimeout(r, 100));
       }
@@ -212,6 +251,15 @@ async function seed(page) {
     });
     await page.reload();
     check(keys.includes("/") && keys.includes("/app.js"), "sw precached the shell " + JSON.stringify(keys));
+    const meta = await page.evaluate(async () => {
+      const fd = new FormData(); fd.append("title", "T"); fd.append("url", "https://x.test"); fd.append("files", new File(["# hi"], "中文筆記.md", { type: "text/markdown" }));
+      const r = await fetch("/share", { method: "POST", body: fd });
+      const c = await caches.open("kaburi-share");
+      const m = await (await c.match("/__share/meta")).json();
+      const f = await c.match("/__share/file-0");
+      return { url: r.url, m, name: f && decodeURIComponent(f.headers.get("x-kaburi-name")), body: f && await f.text() };
+    });
+    check(/share-target=1/.test(meta.url) && meta.m.count === 1 && meta.m.text === "T\nhttps://x.test" && meta.name === "中文筆記.md" && meta.body === "# hi", "sw parks POST /share into the share cache, CJK name round-trips " + JSON.stringify(meta));
     await ctx.setOffline(true);
     const r = await page.reload().catch(() => null);
     check(!!r && (await page.isVisible(".wordmark")), "shell loads offline");

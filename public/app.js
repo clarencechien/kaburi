@@ -29,7 +29,9 @@ var STR = {
   badName: "Keep it .md, .html or .txt — no slashes.",
   failed: "Failed: %s", denied: "Folder access was not granted.",
   loose: "Opened from outside the folder — rename is off.",
-  fullscreen: "Fullscreen", top: "Top"},
+  fullscreen: "Fullscreen", top: "Top",
+  intakeTo: "Save to %s", intakePick: "Choose a folder", intakeOne: "1 file shared in", intakeN: "%n files shared in",
+  landed: "On the counter: %s", landedN: "%n on the counter"},
  zh: {items: "%n 份", rename: "點一下改名", view: "看", edit: "改", save: "存",
   strip: "單檔預覽 — 外部 CSS 與圖片不會載入。",
   notes: "便條", swipe: "左右滑都能丟掉",
@@ -51,7 +53,9 @@ var STR = {
   badName: "只能是 .md、.html、.txt，不能有斜線。",
   failed: "失敗：%s", denied: "沒有拿到資料夾的權限。",
   loose: "從資料夾外開的檔案，不能改名。",
-  fullscreen: "全螢幕", top: "回頂端"}
+  fullscreen: "全螢幕", top: "回頂端",
+  intakeTo: "存到 %s", intakePick: "選一個工作資料夾", intakeOne: "分享進來 1 份", intakeN: "分享進來 %n 份",
+  landed: "已上檯 %s", landedN: "已上檯 %n 份"}
 };
 var PREF = {
  get: function (k, d) { try { var v = localStorage.getItem("kaburi." + k); return v === null ? d : v; } catch (e) { return d; } },
@@ -77,6 +81,7 @@ function applyLang() {
  $("stage").dataset.empty = t("pick");
  $("fsBtn").setAttribute("aria-label", t("fullscreen"));
  $("totop").setAttribute("aria-label", t("top"));
+ paintIntake();
  paintStatus(); paintList(); paintNotes();
  if (cur) render();
 }
@@ -172,6 +177,7 @@ async function useDir(h) {
  dirHandle = h; folderState = "ready"; expanded = false; FILES = [];
  await idbSet("dir", h);
  await scan();
+ if (intake) await landFiles();
 }
 async function pickFolder() {
  var opts = {mode: "readwrite", id: "kaburi", startIn: dirHandle || "downloads"};
@@ -184,7 +190,7 @@ async function reauth() {
  if (!dirHandle) return pickFolder();
  try {
   var p = await dirHandle.requestPermission({mode: "readwrite"});
-  if (p === "granted") { folderState = "ready"; await scan(); }
+  if (p === "granted") { folderState = "ready"; await scan(); if (intake) await landFiles(); }
   else flash(t("denied"));
  } catch (e) { flash(t("failed", errMsg(e))); }
 }
@@ -194,6 +200,12 @@ async function restoreDir() {
  dirHandle = h;
  try {
   var p = await h.queryPermission({mode: "readwrite"});
+  if (p !== "granted") {
+   /* Chrome 122+ persistent permission: an installed app that was granted once may be re-granted
+      without a prompt. Without user activation Chrome either grants silently or rejects; a reject
+      just means the tap-to-reauthorize state below. Never shows a prompt here. */
+   try { p = await h.requestPermission({mode: "readwrite"}); } catch (e) {}
+  }
   if (p === "granted") { folderState = "ready"; await scan(); return; }
  } catch (e) {}
  folderState = "needauth";
@@ -626,6 +638,118 @@ function flash(m) {
  toastTimer = setTimeout(function () { if (toast) { toast.remove(); toast = null; } }, 1700);
 }
 
+/* js: share target — files land in the folder, text becomes a note */
+var SHARE_CACHE = "kaburi-share";
+var intake = null;   /* {count, names} while shared files wait for a folder */
+
+function safeName(raw) {
+ var base = String(raw || "").split(/[\\/]/).pop()
+  .replace(/[\u0000-\u001f<>:"|?*]/g, "").trim().slice(0, 120);
+ if (!base || base === "." || base === "..") return null;
+ if (!/\.[a-z0-9]+$/i.test(base)) return base + ".md";
+ return kindOf(base) ? base : base + ".md";
+}
+function stampName() {
+ var d = new Date(), z = function (n) { return (n < 10 ? "0" : "") + n; };
+ return "shared-" + d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + "-" + z(d.getHours()) + z(d.getMinutes()) + ".md";
+}
+async function uniqueName(name) {
+ var dot = name.lastIndexOf("."), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+ var cand = name, n = 2;
+ while (await exists(cand)) cand = stem + "-" + (n++) + ext;
+ return cand;
+}
+async function readShareMeta() {
+ try {
+  var c = await caches.open(SHARE_CACHE);
+  var r = await c.match("/__share/meta");
+  return r ? await r.json() : null;
+ } catch (e) { return null; }
+}
+async function clearShare() { try { await caches.delete(SHARE_CACHE); } catch (e) {} }
+
+function paintIntake() {
+ var bar = $("intake");
+ bar.hidden = !intake;
+ if (!intake) return;
+ var names = $("intakeNames"); names.textContent = "";
+ var head = document.createElement("span");
+ head.textContent = intake.count === 1 ? t("intakeOne") : t("intakeN", intake.count);
+ names.appendChild(head);
+ intake.names.slice(0, 4).forEach(function (n) { var b = document.createElement("b"); b.textContent = n; names.appendChild(b); });
+ $("intakeBtn").textContent = dirHandle ? t("intakeTo", dirHandle.name || "/") : t("intakePick");
+}
+
+async function intakeShare() {
+ var meta = await readShareMeta();
+ if (!meta) return;
+ var hadFiles = false;
+ try {
+  if (meta.text) { addNote(meta.text); }
+  if (meta.count > 0) {
+   hadFiles = true;
+   var c = await caches.open(SHARE_CACHE), names = [];
+   for (var i = 0; i < meta.count; i++) {
+    var r = await c.match("/__share/file-" + i);
+    var raw = r ? decodeURIComponent(r.headers.get("x-kaburi-name") || "") : "";
+    names.push(safeName(raw) || stampName());
+   }
+   intake = {count: meta.count, names: names};
+   if (folderState === "ready") { await landFiles(); }
+   else { paintIntake(); }
+  } else if (meta.text) {
+   showTab("notes");
+  }
+ } finally {
+  if (!hadFiles) await clearShare();
+ }
+}
+
+async function landFiles() {
+ if (!intake) return;
+ var pending = intake; intake = null; paintIntake();
+ var landed = [], firstErr = null;
+ try {
+  var c = await caches.open(SHARE_CACHE);
+  for (var i = 0; i < pending.count; i++) {
+   var r = await c.match("/__share/file-" + i);
+   if (!r) continue;
+   try {   /* one bad name must not stop the rest of the batch */
+    var name = await uniqueName(pending.names[i]);
+    var h = await dirHandle.getFileHandle(name, {create: true});
+    var w = await h.createWritable(); await w.write(await r.blob()); await w.close();
+    landed.push(name);
+   } catch (e) { if (!firstErr) firstErr = e; console.warn("share intake failed for", pending.names[i], e); }
+  }
+  await scan();
+  if (firstErr) flash(t("failed", errMsg(firstErr)));
+  else if (landed.length === 1) flash(t("landed", landed[0]));
+  else if (landed.length) flash(t("landedN", landed.length));
+ } catch (e) {
+  console.warn("share intake failed:", e);
+  flash(t("failed", errMsg(e)));
+ } finally {
+  await clearShare();
+ }
+}
+
+function intakeAction() {
+ if (!dirHandle) return pickFolder();
+ if (folderState === "needauth") return reauth();
+ return landFiles();
+}
+
+async function handleShare() {
+ if (new URLSearchParams(location.search).has("share-target")) {
+  await intakeShare();
+  history.replaceState(null, "", "/");
+  return;
+ }
+ /* leftovers from a share that never finished: drop them after an hour */
+ var meta = await readShareMeta();
+ if (meta && Date.now() - (meta.at || 0) > 3600000) await clearShare();
+}
+
 /* js: file handler — "Open with" from the OS files app */
 function bindLaunchQueue() {
  if (!("launchQueue" in window)) return;
@@ -671,6 +795,7 @@ function boot() {
  $("back").addEventListener("click", closeStage);
  $("totop").addEventListener("pointerdown", function (e) { e.preventDefault(); });  /* keep the keyboard up */
  $("totop").addEventListener("click", toTop);
+ $("intakeBtn").addEventListener("click", intakeAction);
  $("save").addEventListener("click", save);
  $("add").addEventListener("click", function () { addNote(""); });
  ["files", "notes"].forEach(function (k) { $("tab-" + k).addEventListener("click", function () { showTab(k); }); });
@@ -685,10 +810,10 @@ function boot() {
 
  paintStatus(); paintList();
  var ready = HAS_FS ? restoreDir() : Promise.resolve();
- ready.then(function () { paintStatus(); paintList(); bindLaunchQueue(); });
+ ready.then(function () { paintStatus(); paintList(); bindLaunchQueue(); return handleShare(); });
 
  /* test hook, localhost only: drive the app with an OPFS directory handle */
- if (LOCAL) window.__kaburi = {useDir: useDir, scan: scan, files: function () { return FILES; }, state: function () { return folderState; },
+ if (LOCAL) window.__kaburi = {useDir: useDir, scan: scan, intake: function () { return intake; }, files: function () { return FILES; }, state: function () { return folderState; },
   cur: function () { return cur; }, save: save, rename: renameFile, notes: function () { return notes; }};
 }
 boot();

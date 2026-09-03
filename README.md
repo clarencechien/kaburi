@@ -14,8 +14,8 @@ public/
   boot.js             同步跑在 <head>：主題 / 語言 / 佈局，以及 *.workers.dev / *.pages.dev → 正式網域
   app.js              全部邏輯：資料夾把手、列表、stage、改名、便條
   app.css             三層深度、app / tablet 兩種佈局
-  manifest.json       file_handlers 在這裡；display_override 開 window-controls-overlay，桌機 PWA 的 OS 標題列讓給 app
-  sw.js               只為離線：一律先抓網路、斷網才用快取，部署後下一次開啟就是新版
+  manifest.json       file_handlers 與 share_target 在這裡；display_override 開 window-controls-overlay
+  sw.js               離線殼（先抓網路、斷網才用快取）＋ share target：攔 POST /share 存進 Cache Storage
   icon-*.png          由 scripts/icons.cjs 產生
   _headers            回應標頭（CSP、HSTS、noindex…），Workers static assets 會讀
   robots.txt          Disallow all
@@ -43,13 +43,24 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - **HTML 預覽** 走 `srcdoc` + `sandbox=""`。CSP 會被 iframe 繼承，所以預覽裡的 script、外部圖片、外部 CSS 全部不會跑。`allow-scripts` 與 `allow-same-origin` 永遠不能同時給。
 - 沒有後端、沒有 analytics、沒有第三方資源。偏好（主題、語言、下檯清單）在 `localStorage`，資料夾把手在 IndexedDB，便條只在記憶體。
 
+## Share target（phase 2）
+
+安裝成 PWA 後出現在系統分享選單，只接 md / html / txt 與純文字。
+
+- 檔案 → 寫進工作資料夾、出現在檯面最上面，不自動開啟。同名自動加 `-2`，不跳確認框。
+- 純文字／網址 → 開一張便條，切到便條分頁，不落地。
+- 流程：SW 攔 `POST /share`，把檔案與文字放進 `kaburi-share` cache，303 到 `/?share-target=1`；前景 `intakeShare()` 讀出來分流，做完清掉 cache 並把網址洗回 `/`，重整不會重複落檔。超過一小時的殘留在下次啟動時清掉。
+- 權限：資料夾權限還在就直接落；不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
+- 檔名消毒 `safeName()`：去路徑、去控制字元與 `<>:"|?*`、截 120 字、沒副檔名或非 md/html/txt 補 `.md`，拿不到檔名用 `shared-YYYYMMDD-HHmm.md`。
+- 本機 `check` 用假資料夾走過分流、尾碼、消毒、清理、重整不重複、無資料夾等待、SW 的 POST；中文檔名在 header 的 encode/decode 有驗。headless Linux Chromium 的 OPFS 開不了中文檔名（TypeMismatchError），是測試環境的怪癖，真實資料夾沒這問題。
+
 ## 字級
 
 所有 `font-size` 都是 `rem`，根字級是 `app.css` 最上面的 `--type`：桌機 `1`（16px 基準），`max-width:600px` 的手機 `1.15`。要調整就改這兩個數字，其他不用動。閱讀區在桌機是 18px / 1.8。
 
 ## 現況與待辦
 
-**已做**：草模全部功能、真實資料夾（把手存 IndexedDB、重新授權、`move()` 改名 + copy+delete 退路、覆蓋防護、mtime 下檯清單）、便條純記憶體、app / tablet 佈局、桌機 PWA 的 window-controls-overlay、file_handlers + launchQueue、離線、Workers 部署與 dev domain 關閉。
+**已做**：草模全部功能、真實資料夾（把手存 IndexedDB、重新授權、`move()` 改名 + copy+delete 退路、覆蓋防護、mtime 下檯清單）、便條純記憶體、app / tablet 佈局、桌機 PWA 的 window-controls-overlay、file_handlers + launchQueue、離線、Workers 部署與 dev domain 關閉、**Phase 2 share target**（見下）。
 
 **已實機確認**
 
@@ -61,16 +72,16 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 **待實機驗證**（交接文件 §9 尚未勾的）
 
 - Pixel：改名走 copy+delete，確認磁碟上真的變了
-- 桌機安裝成 PWA 後，Chrome 122 持久權限是否真的免掉重新授權
+- **關鍵路徑**：桌機安裝成 PWA 後，Chrome 122 持久權限是否真的免掉重新授權。通過的話 share target 是零點擊，不通過就每次點一下橫幅。啟動時會先做一次不帶手勢的 `requestPermission()`，持久權限生效時它靜默回 granted；失敗才退回按鈕。Android 沒有持久權限，維持一點
 - 已安裝的 PWA 按全螢幕鍵，`display-mode: fullscreen` 是否切到 tablet mode
 - ChromeOS 檔案 app「開啟方式」點 `.md` 能否直接進來（file_handlers）
 - Windows 1280 / 1536 / 1920 確認沒有水平捲軸（本機只用 Linux Chromium 跑過同一個判斷式）
+- share target（phase 2 §10）：Android 檔案 app 分享 `.md` 進來、分享中文檔名、分享照片時 Kaburi 不出現在選單、ChromeOS 與 Windows 各一次。必須先安裝成 PWA
 
 **backlog**（照交接文件，下個 phase 才碰）
 
 | 項目 | 狀態 | 原因 |
 |---|---|---|
-| `share_target`（Android 接收分享） | backlog | 分享進來的是 `File` 不是 handle，存不回原檔；設計上應寫進當前資料夾變成正常檔案 |
 | 手動切換 app / tablet 的 chip | 視需要 | 只有全螢幕鍵切不動時才補，存 `kaburi.layout` |
 | 標題列的檔名改成 rem 換行而非截斷 | 小 | 手機 412 寬長檔名會「…」，改名時仍是全名 |
 
