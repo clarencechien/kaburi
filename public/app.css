@@ -355,6 +355,8 @@ input.fname{
   padding:8px 16px;border-radius:20px;font-size:0.9062rem;max-width:calc(100% - 40px);
   box-shadow:0 4px 20px rgba(0,0,0,.35);pointer-events:none;
 }
+/* the element stays in the DOM so screen readers keep the live region; empty means nothing to show */
+.toast:empty{display:none}
 
 /* css: markdown */
 .read h1,.read h2,.read h3{line-height:1.3;margin:1.55em 0 .5em;font-weight:600}

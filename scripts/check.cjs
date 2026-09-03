@@ -78,6 +78,8 @@ async function seed(page) {
     page.on("pageerror", (e) => errors.push(String(e)));
     const resp = await page.goto(base + "/");
     check(/frame-ancestors 'none'/.test(resp.headers()["content-security-policy"] || ""), "CSP header served");
+    check(await page.$eval("#toast", (e) => e.getAttribute("role") === "status" && e.getAttribute("aria-live") === "polite" && e.textContent === ""),
+      "toast is a permanent, empty live region at boot");
     await page.evaluate(() => localStorage.clear());
     await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "none");
     check(await page.isVisible("#pick"), "empty state shows Choose a folder");
@@ -133,6 +135,30 @@ async function seed(page) {
     await page.click("#fname"); await page.fill("input#fname", "scratch.txt"); await page.press("input#fname", "Enter");
     await page.waitForTimeout(300);
     check(await page.evaluate(() => window.__kaburi.cur().name) === "renamed-2.txt", "rename onto existing name asks and is cancelled");
+
+    /* a name holding $& / $` must reach the toast verbatim, not through replacement-pattern expansion */
+    await page.click("#fname"); await page.fill("input#fname", "a$&b$`c.md"); await page.press("input#fname", "Enter");
+    await page.waitForFunction(() => window.__kaburi.cur().name === "a$&b$`c.md");
+    const dollarToast = await page.$eval(".toast", (e) => e.textContent);
+    check(dollarToast.includes("a$&b$`c.md"), "a $-bearing name reaches the toast verbatim (" + dollarToast + ")");
+
+    /* case-insensitive filesystems hand back the same file; the refusal must say so, not blame the extension */
+    await page.evaluate(() => {
+      Object.defineProperty(window.__kaburi.cur().handle, "move", { value: undefined, configurable: true });
+      window.__sameOrig = FileSystemFileHandle.prototype.isSameEntry;
+      FileSystemFileHandle.prototype.isSameEntry = async function () { return true; };
+    });
+    await page.click("#fname"); await page.fill("input#fname", "A$&B$`C.MD"); await page.press("input#fname", "Enter");
+    await page.waitForTimeout(300);
+    const sameToast = await page.$eval(".toast", (e) => e.textContent);
+    check(await page.evaluate(() => window.__kaburi.cur().name) === "a$&b$`c.md", "case-only rename is refused, the file keeps its name");
+    check(/same file/i.test(sameToast) && !/slashes/i.test(sameToast), "the refusal explains the collision, not the extension rule (" + sameToast + ")");
+    await page.evaluate(async () => {
+      FileSystemFileHandle.prototype.isSameEntry = window.__sameOrig;
+      const d = await navigator.storage.getDirectory();
+      try { await d.removeEntry("A$&B$`C.MD"); } catch (e) {}     /* stub-only artefact: a real case-insensitive FS creates nothing */
+      await window.__kaburi.scan();
+    });
     await back(page);
 
     /* new board */
@@ -159,6 +185,20 @@ async function seed(page) {
     await page.evaluate(async () => { const d = await navigator.storage.getDirectory(); const h = await d.getFileHandle("scratch.txt"); const w = await h.createWritable(); await w.write("edited outside"); await w.close(); await window.__kaburi.scan(); });
     await page.waitForTimeout(100);
     check(await page.isVisible(".slice:has-text('scratch.txt')"), "externally edited file heals back onto the counter");
+
+    /* the swipe is not the only way off the counter */
+    await page.focus(".slice:has-text('notes-0903.md')");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(250);
+    check(!(await page.isVisible(".slice:has-text('notes-0903.md')")), "arrow key stows the focused row");
+    check(await page.evaluate(() => !!document.activeElement && document.activeElement.classList.contains("slice")), "focus stays in the list after stowing");
+    check((await page.$eval("#toast", (e) => e.textContent)).length > 0, "the live region carries the confirmation");
+    await page.click("#scope");
+    await page.focus(".slice:has-text('notes-0903.md')");
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForTimeout(250);
+    check(!(await page.$eval(".slice:has-text('notes-0903.md')", (e) => e.classList.contains("stowed"))), "arrow key brings the row back");
+    await page.click("#scope");
 
     /* share target intake: files land in the folder, text becomes a note */
     async function park(files, text) {
@@ -273,7 +313,7 @@ async function seed(page) {
     const keys = await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
       for (let i = 0; i < 100; i++) {
-        const c = await caches.open("kaburi-v3"); const k = await c.keys();
+        const c = await caches.open("kaburi-v4"); const k = await c.keys();
         if (k.length >= 8 && navigator.serviceWorker.controller) return k.map((r) => new URL(r.url).pathname);
         await new Promise((r) => setTimeout(r, 100));
       }
@@ -281,6 +321,14 @@ async function seed(page) {
     });
     await page.reload();
     check(keys.includes("/") && keys.includes("/app.js"), "sw precached the shell " + JSON.stringify(keys));
+    await page.goto(base + "/icon-192.png");
+    await page.waitForTimeout(300);
+    const shellType = await page.evaluate(async () => {
+      const r = await (await caches.open("kaburi-v4")).match("/");
+      return r ? (r.headers.get("content-type") || "none") : "missing";
+    });
+    check(/text\/html/i.test(shellType), "navigating straight to a subresource does not become the offline shell (" + shellType + ")");
+    await page.goto(base + "/");
     /* Drive the worker the way the attack does: a form POST from a different origin.
        Our own CSP (form-action 'none') forbids submitting such a form from a Kaburi page. */
     const navs = [];

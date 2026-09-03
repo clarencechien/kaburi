@@ -2,7 +2,7 @@
    Network first for everything: a deploy shows up on the very next open; the cache is only for offline.
    POST /share (Web Share Target) is parked in its own cache for the page to pick up; the page cannot
    read a POST body itself, only the worker can. */
-const VERSION = "kaburi-v3";
+const VERSION = "kaburi-v4";
 const SHARE_CACHE = "kaburi-share";
 const PRECACHE = [
   "/", "/app.css", "/app.js", "/boot.js", "/manifest.json",
@@ -56,11 +56,16 @@ self.addEventListener("fetch", (e) => {
   }
 
   if (req.method !== "GET") return;
-  const key = req.mode === "navigate" ? "/" : req;
+  const nav = req.mode === "navigate";
+  const key = nav ? "/" : req;
 
   e.respondWith(
     fetch(req).then((r) => {
-      if (r.ok && !r.redirected) caches.open(VERSION).then((c) => c.put(key, r.clone()));
+      /* Every navigation is stored as the shell, so a navigation straight to a subresource — someone
+         opening /icon-192.png in the address bar — must not be allowed to become the offline shell. */
+      const storable = r.ok && !r.redirected &&
+        (!nav || /text\/html/i.test(r.headers.get("content-type") || ""));
+      if (storable) caches.open(VERSION).then((c) => c.put(key, r.clone()));
       return r;
     }).catch(() => caches.open(VERSION).then((c) => c.match(key)))   /* never fall back into the share cache */
   );

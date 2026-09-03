@@ -18,6 +18,7 @@ var STR = {
   pick: "pick a slice", ch: "%n ch", tabF: "Files", tabN: "Notes",
   showAll: "Everything in this folder", scopeAll: "all %n", scopeRecent: "recent",
   stow: "stow", unstow: "back", stowed: "Stowed", unstowed: "Back on the counter",
+  rowStow: "Swipe, or press \u2190 \u2192, to stow", rowUnstow: "Swipe, or press \u2190 \u2192, to bring back",
   saved: "Saved", renamed: "Renamed → %s", copied: "Copied", copiedToss: "Copied, note tossed",
   today: "Today", yday: "Yesterday", other: "中",
   noFolder: "no folder", changeFolder: "Tap to change folder",
@@ -27,6 +28,7 @@ var STR = {
   unsupported: "This browser can't open local folders. Use Chrome 132+ or Edge on desktop, ChromeOS or Android.",
   overwrite: "\u201C%s\u201D already exists. Overwrite it?",
   badName: "Keep it .md, .html or .txt — no slashes.",
+  sameFile: "That name is the same file here.",
   failed: "Failed: %s", denied: "Folder access was not granted.",
   loose: "Opened from outside the folder — rename is off.",
   fullscreen: "Fullscreen", top: "Top",
@@ -43,6 +45,7 @@ var STR = {
   pick: "選一片", ch: "%n 字", tabF: "檔案", tabN: "便條",
   showAll: "這個資料夾裡的全部", scopeAll: "全部 %n", scopeRecent: "最近",
   stow: "下檯", unstow: "回檯", stowed: "已下檯", unstowed: "回到檯面",
+  rowStow: "左右滑，或按 \u2190 \u2192，下檯", rowUnstow: "左右滑，或按 \u2190 \u2192，回檯",
   saved: "已存回", renamed: "改名 → %s", copied: "已複製", copiedToss: "已複製，便條丟了",
   today: "今天", yday: "昨天", other: "EN",
   noFolder: "沒有資料夾", changeFolder: "點一下換資料夾",
@@ -52,6 +55,7 @@ var STR = {
   unsupported: "這個瀏覽器不能開本機資料夾。請用桌機、ChromeOS 或 Android 上的 Chrome 132+ 或 Edge。",
   overwrite: "「%s」已經存在，覆蓋掉它？",
   badName: "只能是 .md、.html、.txt，不能有斜線。",
+  sameFile: "這個名字在這裡就是同一個檔。",
   failed: "失敗：%s", denied: "沒有拿到資料夾的權限。",
   loose: "從資料夾外開的檔案，不能改名。",
   fullscreen: "全螢幕", top: "回頂端",
@@ -67,7 +71,8 @@ var lang = PREF.get("lang", "en");
 if (lang !== "zh") lang = "en";
 function t(k, v) {
  var s = STR[lang][k] || k;
- if (v !== undefined) s = s.replace("%n", v).replace("%s", v);
+ /* function form: a value holding $&, $` or $' must not be read as a replacement pattern */
+ if (v !== undefined) s = s.replace("%n", function () { return v; }).replace("%s", function () { return v; });
  return s;
 }
 
@@ -316,6 +321,13 @@ function rowFor(f, withDate) {
  sl.textContent = sr.textContent = t(on ? "unstow" : "stow");
  b.appendChild(sl); b.appendChild(sr);
  if (on) b.classList.add("stowed");
+ /* the swipe must not be the only way off the counter: the arrow keys are its keyboard twin */
+ b.title = t(on ? "rowUnstow" : "rowStow");
+ b.setAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
+ b.addEventListener("keydown", function (e) {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  e.preventDefault(); stow(f);
+ });
 
  var x0 = 0, dx = 0, drag = false, lock = null, y0 = 0;
  b.addEventListener("pointerdown", function (e) {
@@ -342,12 +354,21 @@ function rowFor(f, withDate) {
 }
 
 function stow(f) {
+ var rows = $("rows"), at = -1, live = document.activeElement;
+ if (live && live.classList && live.classList.contains("slice")) {
+  at = Array.prototype.indexOf.call(rows.querySelectorAll(".slice"), live);
+ }
  var on = isStowed(f);
  if (on) delete archived[f.name]; else archived[f.name] = f.ts;
  saveStowed();
  vibrate(10);
  flash(t(on ? "unstowed" : "stowed"));
  paintList();
+ if (at >= 0) {                 /* the list was rebuilt; keep the keyboard where it was */
+  var after = rows.querySelectorAll(".slice");
+  var next = after[Math.min(at, after.length - 1)];
+  if (next) next.focus();
+ }
 }
 
 function emptyPane(html) {
@@ -503,7 +524,7 @@ async function renameFile(f, newName) {
    var nh = await dirHandle.getFileHandle(newName, {create: true});
    /* case-insensitive filesystems hand back the very same file for "a.md" → "A.md";
       deleting "a.md" afterwards would delete the only copy */
-   if (await nh.isSameEntry(f.handle)) { flash(t("badName")); return false; }
+   if (await nh.isSameEntry(f.handle)) { flash(t("sameFile")); return false; }
    var text = await (await f.handle.getFile()).text();
    var w = await nh.createWritable(); await w.write(text); await w.close();
    await dirHandle.removeEntry(old);
@@ -631,14 +652,14 @@ function showTab(k) {
  $("v-notes").classList.toggle("on", k === "notes");
 }
 
-/* js: toast */
-var toast = null, toastTimer = null;
+/* js: toast — one permanent role="status" element, so every message is announced */
+var toastTimer = null;
 function flash(m) {
- if (toast) toast.remove();
- toast = document.createElement("div"); toast.className = "toast"; toast.textContent = m;
- document.body.appendChild(toast);
+ var el = $("toast");
+ el.textContent = "";
+ el.textContent = m;
  clearTimeout(toastTimer);
- toastTimer = setTimeout(function () { if (toast) { toast.remove(); toast = null; } }, 1700);
+ toastTimer = setTimeout(function () { el.textContent = ""; }, 1700);
 }
 
 /* js: share target — files land in the folder, text becomes a note */
