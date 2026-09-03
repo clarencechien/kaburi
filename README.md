@@ -15,14 +15,14 @@ public/
   app.js              全部邏輯：資料夾把手、列表、stage、改名、便條
   app.css             三層深度、app / tablet 兩種佈局
   manifest.json       file_handlers 與 share_target 在這裡；display_override 開 window-controls-overlay
-  sw.js               離線殼（先抓網路、斷網才用快取）＋ share target：攔 POST /share 存進 Cache Storage
+  sw.js               離線殼（先抓網路、斷網才用快取，只有 text/html 能當殼）＋ share target：攔 POST /share
   icon-*.png          由 scripts/icons.cjs 產生
   _headers            回應標頭（CSP、HSTS、noindex…），Workers static assets 會讀
   robots.txt          Disallow all
 wrangler.jsonc        Workers 設定：assets 目錄、關 workers.dev、custom domain
 scripts/
   icons.cjs           用 Chromium 畫 icon
-  check.cjs           起本機伺服器（帶 _headers）、用 OPFS 假資料夾跑完整流程、截 412 / 900 / 1440 / 1920 四種寬度
+  check.cjs           起本機伺服器（帶 _headers）＋第二個來源的伺服器、用 OPFS 假資料夾跑完整流程、截四種寬度
 ```
 
 ## 部署：Cloudflare Workers 接 GitHub
@@ -62,9 +62,14 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 所有 `font-size` 都是 `rem`，根字級是 `app.css` 最上面的 `--type`：桌機 `1`（16px 基準），`max-width:600px` 的手機 `1.15`。要調整就改這兩個數字，其他不用動。閱讀區在桌機是 18px / 1.8。
 
+## 無障礙
+
+- **下檯有鍵盤路徑**：檔案列聚焦後按 `←` `→` 就是下檯／回檯，和左右滑同一件事。刻意不在檯面上加按鈕，提示放在 `title`（滑鼠）與 `aria-keyshortcuts`（螢幕閱讀器）。下檯後列表會重建，焦點會被放回同一個位置的列上，可以連按處理好幾筆。
+- **toast 是常駐的 live region**：`index.html` 裡那個空的 `#toast` 帶 `role="status" aria-live="polite" aria-atomic="true"`，`flash()` 只換 `textContent`，沒訊息時留空由 CSS `:empty` 隱藏。**不要改成每次新建元素再插進 DOM**，那樣螢幕閱讀器不保證會念。
+
 ## 現況與待辦
 
-**已做**：草模全部功能、真實資料夾（把手存 IndexedDB、重新授權、`move()` 改名 + copy+delete 退路、覆蓋防護、mtime 下檯清單）、便條純記憶體、app / tablet 佈局、桌機 PWA 的 window-controls-overlay、file_handlers + launchQueue、離線、Workers 部署與 dev domain 關閉、**Phase 2 share target**（見下）。
+**已做**：草模全部功能、真實資料夾（把手存 IndexedDB、重新授權、`move()` 改名 + copy+delete 退路、覆蓋防護、mtime 下檯清單）、便條純記憶體、app / tablet 佈局、桌機 PWA 的 window-controls-overlay、file_handlers + launchQueue、離線、Workers 部署與 dev domain 關閉、Phase 2 share target、鍵盤與螢幕閱讀器路徑。兩輪資安審查跑完，沒有未處理的發現。
 
 **已實機確認**
 
@@ -75,13 +80,16 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 | 桌機安裝成 PWA、Chrome 122 持久權限 | 通過。重開時不帶手勢的 `requestPermission()` 靜默回 granted，不用再點；share target 零點擊 |
 | share target（phase 2 §10 的 1–5） | 通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
 
-**已修**：SW 離線退路只在殼的 cache 找（不會撈到 share cache）；stage 標題列長檔名換行兩行再裁，不再「…」；跨站 POST `/share` 綁 token 且在一般分頁一律要點一下；直接導覽到子路徑不會蓋掉離線殼；大小寫改名有專屬訊息；檔名含 `$&` 不會讓提示文字錯亂。
+**踩過的坑**（交接文件 §7 沒有的，都有測試守著）
 
-**無障礙**：檔案列聚焦後按 `←` `→` 就是下檯／回檯，和左右滑同一件事，版面上不加按鈕（提示放在 `title` 與 `aria-keyshortcuts`）；下檯後焦點留在同一個位置的列上。toast 是常駐的 `role="status"` live region，螢幕閱讀器會念出「已存回」「已上檯」這些回饋。
+1. **大小寫不敏感的檔案系統會吃掉檔案。** Windows 與 Android 上 `getFileHandle("A.md", {create:true})` 拿到的就是 `a.md` 那一個檔；copy+delete 改名若照常往下走，`removeEntry("a.md")` 會刪掉唯一一份。寫入前一定要 `isSameEntry` 比對，相同就中止。
+2. **SW 把每次導覽都存成離線殼。** 直接在網址列開 `/icon-192.png` 這種子路徑也是一次導覽，那個 PNG 會被存成 `/`，之後離線開 app 拿到的就是圖片。只有 `text/html` 能寫進殼那個 key。
+3. **`String.replace(字串, 值)` 會解讀替換樣式。** 檔名帶 `$&` 或 `` $` `` 時，`t("renamed", name)` 產出的提示會錯亂（``a$`b.md`` 變成 `aRenamed → b.md`）。用函式形式的 replace 才會照字面帶入。
+4. **CSP 的 `form-action 'none'` 也擋自家的表單。** 要測跨站 POST `/share`，只能另外起一個來源的伺服器發動，從 Kaburi 自己的頁面送表單會被自己的 CSP 擋掉。
 
-**還可以做**（不急，影響小）
+**知道但先不做**
 
-- `scan()` 每次回到前景重讀整個資料夾的 metadata，資料夾大會慢。工作檯定位是小資料夾，先不優化
+- `scan()` 會逐一 `getFile()` 讀整個資料夾的 mtime 與大小，而它在每次 `focus` / 回到前景時都會跑一次。資料夾大就會頓。工作檯的定位是小資料夾，現在的做法簡單且不會有快取失效的錯，先不優化。真的頓了，最小的改法是拉長 `rescanSoon` 的 debounce 或加一道節流，不用改資料結構。
 
 **待實機驗證**（交接文件 §9 尚未勾的）
 
@@ -107,4 +115,12 @@ npm run check      # 需要全域 playwright；截圖在 scripts/shots/
 npm run icons      # 重畫 icon
 ```
 
-`check` 用 OPFS 當假資料夾驅動整個流程（開檔、存回、move() 改名、copy+delete 改名、覆蓋防護、新板子、滑動下檯、外部修改自癒、便條不落地、離線）。真實資料夾的選取需要使用者手勢，只能實機驗。
+`check` 目前 65 條，用 OPFS 當假資料夾驅動整個流程：
+
+- **檔案**：開檔、存回磁碟、`move()` 改名、copy+delete 改名、覆蓋防護、大小寫同檔擋下、新板子、滑動下檯、鍵盤下檯與焦點、外部修改自癒
+- **算繪**：markdown 表格、`javascript:` 連結被中和、HTML 預覽在 sandbox 裡跑且 script 不執行
+- **share target**：檔案／文字分流、`-2` 尾碼、檔名消毒、清 cache、重整不重複、無資料夾等待、token 不符就丟掉、真的從第二個來源發動一次跨站表單 POST
+- **殼**：CSP 標頭、SW precache、子路徑導覽不會蓋掉殼、斷網能開、便條不落地、console 無錯誤
+- **版面**：app / tablet 兩種佈局 × 412 / 900 / 1440 / 1920 四種寬度確認沒有水平捲軸，並截圖到 `scripts/shots/`
+
+真實資料夾的選取、系統分享選單、持久權限都需要使用者手勢或作業系統參與，只能實機驗。
