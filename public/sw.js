@@ -28,15 +28,21 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  if (req.method === "POST" && url.pathname === "/share") {
+  if (req.method === "POST" && req.mode === "navigate" && url.pathname === "/share") {
     e.respondWith((async () => {
+      /* Anyone can form-POST here; the worker cannot tell the share sheet from a cross-site form.
+         So each payload is stamped with an unguessable token that also travels in the redirect:
+         only the launch that created a payload is allowed to drain it. */
+      let token = "";
       try {
         const form = await req.formData();
         const files = form.getAll("files").filter((f) => f && typeof f === "object" && "size" in f);
         const text = [form.get("title"), form.get("text"), form.get("url")]
           .filter((v) => typeof v === "string" && v.trim()).join("\n");
         const cache = await caches.open(SHARE_CACHE);
-        await cache.put("/__share/meta", new Response(JSON.stringify({ count: files.length, text, at: Date.now() }),
+        token = self.crypto.randomUUID ? self.crypto.randomUUID()
+          : Array.from(self.crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+        await cache.put("/__share/meta", new Response(JSON.stringify({ count: files.length, text, at: Date.now(), nonce: token }),
           { headers: { "content-type": "application/json" } }));
         await Promise.all(files.map((f, i) =>
           cache.put("/__share/file-" + i, new Response(f, { headers: {
@@ -44,7 +50,7 @@ self.addEventListener("fetch", (e) => {
             "content-type": f.type || "application/octet-stream"
           } }))));
       } catch (err) { /* fall through: the page shows an empty intake and clears up */ }
-      return Response.redirect(new URL("/?share-target=1", self.location.origin).href, 303);
+      return Response.redirect(new URL("/?share-target=" + encodeURIComponent(token), self.location.origin).href, 303);
     })());
     return;
   }

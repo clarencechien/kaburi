@@ -31,6 +31,7 @@ var STR = {
   loose: "Opened from outside the folder — rename is off.",
   fullscreen: "Fullscreen", top: "Top",
   intakeTo: "Save to %s", intakePick: "Choose a folder", intakeOne: "1 file shared in", intakeN: "%n files shared in",
+  intakeText: "Text shared in", intakeNote: "Keep as note",
   landed: "On the counter: %s", landedN: "%n on the counter"},
  zh: {items: "%n 份", rename: "點一下改名", view: "看", edit: "改", save: "存",
   strip: "單檔預覽 — 外部 CSS 與圖片不會載入。",
@@ -55,6 +56,7 @@ var STR = {
   loose: "從資料夾外開的檔案，不能改名。",
   fullscreen: "全螢幕", top: "回頂端",
   intakeTo: "存到 %s", intakePick: "選一個工作資料夾", intakeOne: "分享進來 1 份", intakeN: "分享進來 %n 份",
+  intakeText: "分享進來一段文字", intakeNote: "開成便條",
   landed: "已上檯 %s", landedN: "已上檯 %n 份"}
 };
 var PREF = {
@@ -681,40 +683,43 @@ function paintIntake() {
  if (!intake) return;
  var names = $("intakeNames"); names.textContent = "";
  var head = document.createElement("span");
+ var line = document.createElement("b");
+ if (!intake.count) {                                  /* text only: no folder, no permission */
+  head.textContent = t("intakeText");
+  line.textContent = intake.text.slice(0, 90);
+  names.appendChild(head); names.appendChild(line);
+  $("intakeBtn").textContent = t("intakeNote");
+  return;
+ }
  head.textContent = intake.count === 1 ? t("intakeOne") : t("intakeN", intake.count);
  names.appendChild(head);
  intake.names.slice(0, 4).forEach(function (n) { var b = document.createElement("b"); b.textContent = n; names.appendChild(b); });
  $("intakeBtn").textContent = dirHandle ? t("intakeTo", dirHandle.name || "/") : t("intakePick");
 }
 
-async function intakeShare() {
- var meta = await readShareMeta();
- if (!meta) return;
- var hadFiles = false;
+async function intakeShare(meta) {
+ var count = meta.count > 0 ? meta.count : 0, text = meta.text || "", names = [];
+ if (!count && !text) { await clearShare(); return; }
  try {
-  if (meta.text) { addNote(meta.text); }
-  if (meta.count > 0) {
-   hadFiles = true;
-   var c = await caches.open(SHARE_CACHE), names = [];
-   for (var i = 0; i < meta.count; i++) {
-    var r = await c.match("/__share/file-" + i);
-    var raw = r ? decodeURIComponent(r.headers.get("x-kaburi-name") || "") : "";
-    names.push(safeName(raw) || stampName());
-   }
-   intake = {count: meta.count, names: names};
-   if (folderState === "ready" && launchedAsApp()) { await landFiles(); }
-   else { paintIntake(); }
-  } else if (meta.text) {
-   showTab("notes");
+  var c = await caches.open(SHARE_CACHE);
+  for (var i = 0; i < count; i++) {
+   var r = await c.match("/__share/file-" + i), raw = "";
+   if (r) { try { raw = decodeURIComponent(r.headers.get("x-kaburi-name") || ""); } catch (e) { raw = ""; } }
+   names.push(safeName(raw) || stampName());
   }
- } finally {
-  if (!hadFiles) await clearShare();
- }
+ } catch (e) { console.warn("share intake failed:", e); }
+ intake = {count: count, names: names, text: text};
+ /* A real share opens the installed app window. Anything that surfaces in a plain browser tab may be a
+    cross-site form POST, so it waits on the strip for a tap — files and text alike. */
+ if (launchedAsApp() && (!count || folderState === "ready")) { await landFiles(); }
+ else { paintIntake(); }
 }
 
 async function landFiles() {
  if (!intake) return;
  var pending = intake; intake = null; paintIntake();
+ if (pending.text) { addNote(pending.text); if (!pending.count) showTab("notes"); }
+ if (!pending.count) { await clearShare(); return; }
  var landed = [], firstErr = null;
  try {
   var c = await caches.open(SHARE_CACHE);
@@ -741,20 +746,21 @@ async function landFiles() {
 }
 
 function intakeAction() {
+ if (intake && !intake.count) return landFiles();     /* text only: nothing to authorize */
  if (!dirHandle) return pickFolder();
  if (folderState === "needauth") return reauth();
  return landFiles();
 }
 
 async function handleShare() {
- if (new URLSearchParams(location.search).has("share-target")) {
-  await intakeShare();
-  history.replaceState(null, "", "/");
-  return;
- }
- /* leftovers from a share that never finished: drop them after an hour */
+ var token = new URLSearchParams(location.search).get("share-target");
  var meta = await readShareMeta();
- if (meta && Date.now() - (meta.at || 0) > 3600000) await clearShare();
+ if (token) history.replaceState(null, "", "/");
+ /* The token is minted by the worker per payload and travels in the redirect it answers with. A payload
+    whose token does not match this launch was parked by someone else's POST, or abandoned; either way it
+    is dropped here rather than left armed for a later launch to pick up. */
+ if (token && meta && meta.nonce && meta.nonce === token) { await intakeShare(meta); return; }
+ if (meta) await clearShare();
 }
 
 /* js: file handler — "Open with" from the OS files app */

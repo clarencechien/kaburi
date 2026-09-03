@@ -49,11 +49,14 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 - 檔案 → 寫進工作資料夾、出現在檯面最上面，不自動開啟。同名自動加 `-2`，不跳確認框。
 - 純文字／網址 → 開一張便條，切到便條分頁，不落地。
-- 流程：SW 攔 `POST /share`，把檔案與文字放進 `kaburi-share` cache，303 到 `/?share-target=1`；前景 `intakeShare()` 讀出來分流，做完清掉 cache 並把網址洗回 `/`，重整不會重複落檔。超過一小時的殘留在下次啟動時清掉。
+- 流程：SW 攔 `POST /share`（只認導覽式請求），產生一組不可猜的 token 一併寫進 payload，303 到 `/?share-target=<token>`；前景 `handleShare()` 只有在網址帶的 token 與 payload 裡的相符時才取用，分流、清 cache、把網址洗回 `/`。任何其他啟動看到殘留就直接丟掉，不會留著等人來取。
 - 權限：在安裝的 app 視窗裡（standalone）且資料夾權限還在就直接落，零點擊；權限不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
-- **在一般瀏覽器分頁裡一律要點一下**：任何網站都能用表單 POST 到 `/share`，SW 分不出來源。真正的分享會開在 app 視窗，跨站 POST 只會落在對方的分頁，所以用 `display-mode` 當門檻，跨站 POST 拿不到零點擊寫檔。
+- **兩道防線擋跨站 POST**：任何網站都能用表單 POST 到 `/share`，SW 分不出來源。
+  1. **token 綁定**：payload 只能被產生它的那次啟動取用。攻擊者用隱藏 iframe 偷偷寄放（`frame-ancestors 'none'` 會擋掉畫面，但 cache 已經寫進去了），也沒辦法之後誘導使用者開 `/?share-target=1` 把它取出來。
+  2. **display-mode 門檻**：真正的分享會開在 app 視窗，跨站 POST 只會落在一般分頁，分頁裡一律要點一下才寫。
+  文字便條也走同一道門檻，不會被跨站 POST 直接塞進來。
 - 檔名消毒 `safeName()`：去路徑、去控制字元與 `<>:"|?*`、截 120 字、沒副檔名或非 md/html/txt 補 `.md`，拿不到檔名用 `shared-YYYYMMDD-HHmm.md`。
-- 本機 `check` 用假資料夾走過分流、尾碼、消毒、清理、重整不重複、無資料夾等待、SW 的 POST；中文檔名在 header 的 encode/decode 有驗。headless Linux Chromium 的 OPFS 開不了中文檔名（TypeMismatchError），是測試環境的怪癖，真實資料夾沒這問題。
+- 本機 `check` 用假資料夾走過分流、尾碼、消毒、清理、重整不重複、無資料夾等待，並用第二個來源的伺服器真的發動一次跨站表單 POST，確認 payload 只落在橫幅上、token 不符會被丟掉；中文檔名在 header 的 encode/decode 有驗。headless Linux Chromium 的 OPFS 開不了中文檔名（TypeMismatchError），是測試環境的怪癖，真實資料夾沒這問題。
 
 ## 字級
 
@@ -72,7 +75,7 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 | 桌機安裝成 PWA、Chrome 122 持久權限 | 通過。重開時不帶手勢的 `requestPermission()` 靜默回 granted，不用再點；share target 零點擊 |
 | share target（phase 2 §10 的 1–5） | 通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
 
-**已修**：SW 離線退路只在殼的 cache 找（不會撈到 share cache）；stage 標題列長檔名換行兩行再裁，不再「…」；跨站 POST `/share` 在一般分頁一律要點一下。
+**已修**：SW 離線退路只在殼的 cache 找（不會撈到 share cache）；stage 標題列長檔名換行兩行再裁，不再「…」；跨站 POST `/share` 綁 token 且在一般分頁一律要點一下。
 
 **待實機驗證**（交接文件 §9 尚未勾的）
 
