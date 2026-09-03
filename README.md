@@ -68,15 +68,16 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 |---|---|
 | Win11 / ChromeOS 安裝成 PWA、開檔、改、存 | 通過 |
 | Android 安裝成 PWA 後重開 | 每次都要點一下重新授權。Android 的 File System Access 沒有持久權限，這是平台限制不是 bug；整個畫面任一處點下去都算授權 |
+| 桌機安裝成 PWA、Chrome 122 持久權限 | 通過。重開時不帶手勢的 `requestPermission()` 靜默回 granted，不用再點；share target 零點擊 |
+| share target（phase 2 §10 的 1–5） | 通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
 
 **待實機驗證**（交接文件 §9 尚未勾的）
 
 - Pixel：改名走 copy+delete，確認磁碟上真的變了
-- **關鍵路徑**：桌機安裝成 PWA 後，Chrome 122 持久權限是否真的免掉重新授權。通過的話 share target 是零點擊，不通過就每次點一下橫幅。啟動時會先做一次不帶手勢的 `requestPermission()`，持久權限生效時它靜默回 granted；失敗才退回按鈕。Android 沒有持久權限，維持一點
 - 已安裝的 PWA 按全螢幕鍵，`display-mode: fullscreen` 是否切到 tablet mode
 - ChromeOS 檔案 app「開啟方式」點 `.md` 能否直接進來（file_handlers）
 - Windows 1280 / 1536 / 1920 確認沒有水平捲軸（本機只用 Linux Chromium 跑過同一個判斷式）
-- share target（phase 2 §10）：Android 檔案 app 分享 `.md` 進來、分享中文檔名、分享照片時 Kaburi 不出現在選單、ChromeOS 與 Windows 各一次。必須先安裝成 PWA
+- share target 在 ChromeOS 與 Windows 各跑一次（Android 已驗）；分享後直接關掉 app 再開，確認沒殘留、沒重複落檔
 
 **backlog**（照交接文件，下個 phase 才碰）
 
