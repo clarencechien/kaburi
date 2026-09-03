@@ -50,7 +50,8 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - 檔案 → 寫進工作資料夾、出現在檯面最上面，不自動開啟。同名自動加 `-2`，不跳確認框。
 - 純文字／網址 → 開一張便條，切到便條分頁，不落地。
 - 流程：SW 攔 `POST /share`，把檔案與文字放進 `kaburi-share` cache，303 到 `/?share-target=1`；前景 `intakeShare()` 讀出來分流，做完清掉 cache 並把網址洗回 `/`，重整不會重複落檔。超過一小時的殘留在下次啟動時清掉。
-- 權限：資料夾權限還在就直接落；不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
+- 權限：在安裝的 app 視窗裡（standalone）且資料夾權限還在就直接落，零點擊；權限不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
+- **在一般瀏覽器分頁裡一律要點一下**：任何網站都能用表單 POST 到 `/share`，SW 分不出來源。真正的分享會開在 app 視窗，跨站 POST 只會落在對方的分頁，所以用 `display-mode` 當門檻，跨站 POST 拿不到零點擊寫檔。
 - 檔名消毒 `safeName()`：去路徑、去控制字元與 `<>:"|?*`、截 120 字、沒副檔名或非 md/html/txt 補 `.md`，拿不到檔名用 `shared-YYYYMMDD-HHmm.md`。
 - 本機 `check` 用假資料夾走過分流、尾碼、消毒、清理、重整不重複、無資料夾等待、SW 的 POST；中文檔名在 header 的 encode/decode 有驗。headless Linux Chromium 的 OPFS 開不了中文檔名（TypeMismatchError），是測試環境的怪癖，真實資料夾沒這問題。
 

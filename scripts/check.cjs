@@ -170,10 +170,25 @@ async function seed(page) {
     }
     const onDisk = async () => page.evaluate(async () => { const d = await navigator.storage.getDirectory(); const n = []; for await (const [k] of d.entries()) n.push(k); return n; });
     await park([["scratch.txt", "shared body"], ["my notes 2.md", "# spaced"], ["../../evil<>.md", "x"], ["noext", "y"]], "");
+    /* headless Chromium is a plain tab: files must wait for a tap even though permission is held */
     await page.goto(base + "/?share-target=1");
-    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && location.search === "");
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && location.search === "" && window.__kaburi.intake());
+    check(!(await page.$eval("#intake", (e) => e.hidden)), "browser tab: shared files wait on the intake strip, no unattended write");
+    check(!(await onDisk()).includes("scratch-2.txt"), "nothing written before the tap");
+    await page.click("#intakeBtn");
+    await page.waitForFunction(() => !window.__kaburi.intake());
+    await page.waitForTimeout(200);
     let disk2 = await onDisk();
+    check(disk2.includes("scratch-2.txt"), "tap on the strip lands the files");
+    /* installed app window: zero-click */
+    await page.evaluate(async () => { const d = await navigator.storage.getDirectory(); for (const n of ["scratch-2.txt", "my notes 2.md", "evil.md", "noext.md"]) { try { await d.removeEntry(n); } catch (e) {} } });
+    await page.addInitScript(() => { window.__kaburiDisplayMode = "standalone"; });
+    await park([["scratch.txt", "shared body"], ["my notes 2.md", "# spaced"], ["../../evil<>.md", "x"], ["noext", "y"]], "");
+    await page.goto(base + "/?share-target=1");
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && location.search === "" && !window.__kaburi.intake());
+    await page.waitForTimeout(300);
+    disk2 = await onDisk();
+    check(await page.$eval("#intake", (e) => e.hidden), "app window: files land without a tap");
     check(disk2.includes("scratch-2.txt") && disk2.includes("scratch.txt"), "shared duplicate gets -2 suffix, original untouched " + JSON.stringify(disk2));
     check(disk2.includes("my notes 2.md"), "spaces in a shared name survive the header round trip");
     check(disk2.includes("evil.md") && !disk2.some((n) => n.includes("..")), "path bits and control chars stripped");
