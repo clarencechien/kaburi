@@ -107,6 +107,11 @@ async function seed(page) {
     await page.fill("#src", "# changed\n\nsaved from test");
     check(await page.isVisible("#save"), "Save appears once dirty");
     await page.waitForTimeout(400);
+    await page.fill("#src", "# changed\n" + "line\n".repeat(80) + "saved from test");
+    await page.evaluate(() => { const t = document.getElementById("src"); t.setSelectionRange(t.value.length, t.value.length); t.scrollTop = t.scrollHeight; });
+    await page.click("#totop");
+    check(await page.evaluate(() => { const t = document.getElementById("src"); return t.selectionStart === 0 && t.scrollTop === 0 && document.activeElement === t; }), "top button puts the caret on line 1");
+    await page.fill("#src", "# changed\n\nsaved from test");
     await page.screenshot({ path: path.join(SHOTS, "app-412-edit.png") });
     await page.click("#save");
     await page.waitForSelector("#save", { state: "hidden" });

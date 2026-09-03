@@ -29,7 +29,7 @@ var STR = {
   badName: "Keep it .md, .html or .txt — no slashes.",
   failed: "Failed: %s", denied: "Folder access was not granted.",
   loose: "Opened from outside the folder — rename is off.",
-  fullscreen: "Fullscreen"},
+  fullscreen: "Fullscreen", top: "Top"},
  zh: {items: "%n 份", rename: "點一下改名", view: "看", edit: "改", save: "存",
   strip: "單檔預覽 — 外部 CSS 與圖片不會載入。",
   notes: "便條", swipe: "左右滑都能丟掉",
@@ -51,7 +51,7 @@ var STR = {
   badName: "只能是 .md、.html、.txt，不能有斜線。",
   failed: "失敗：%s", denied: "沒有拿到資料夾的權限。",
   loose: "從資料夾外開的檔案，不能改名。",
-  fullscreen: "全螢幕"}
+  fullscreen: "全螢幕", top: "回頂端"}
 };
 var PREF = {
  get: function (k, d) { try { var v = localStorage.getItem("kaburi." + k); return v === null ? d : v; } catch (e) { return d; } },
@@ -76,6 +76,7 @@ function applyLang() {
  $("tabN").textContent = t("tabN");
  $("stage").dataset.empty = t("pick");
  $("fsBtn").setAttribute("aria-label", t("fullscreen"));
+ $("totop").setAttribute("aria-label", t("top"));
  paintStatus(); paintList(); paintNotes();
  if (cur) render();
 }
@@ -399,6 +400,12 @@ async function openFile(f) {
  if (f.loose) flash(t("loose"));
 }
 function closeStage() { $("stage").classList.remove("open"); }
+function toTop() {
+ var ta = $("src"); if (!ta) return;
+ ta.focus({preventScroll: true});
+ ta.setSelectionRange(0, 0);
+ ta.scrollTop = 0; $("sbody").scrollTop = 0; window.scrollTo(0, 0);
+}
 
 function render() {
  var f = cur; if (!f) return;
@@ -409,6 +416,7 @@ function render() {
  $("save").textContent = t("save");
  $("save").hidden = !(mode === "edit" && dirty);
  var body = $("sbody"); body.textContent = "";
+ $("totop").hidden = mode !== "edit";
 
  if (mode === "edit") {
   var ta = document.createElement("textarea"); ta.id = "src"; ta.spellcheck = false; ta.value = f.body;
@@ -661,6 +669,8 @@ function boot() {
   mode = mode === "view" ? "edit" : "view"; render();
   if (mode === "edit") setTimeout(function () { var s = $("src"); if (s) s.focus(); }, 70); });
  $("back").addEventListener("click", closeStage);
+ $("totop").addEventListener("pointerdown", function (e) { e.preventDefault(); });  /* keep the keyboard up */
+ $("totop").addEventListener("click", toTop);
  $("save").addEventListener("click", save);
  $("add").addEventListener("click", function () { addNote(""); });
  ["files", "notes"].forEach(function (k) { $("tab-" + k).addEventListener("click", function () { showTab(k); }); });
