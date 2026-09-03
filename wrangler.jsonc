@@ -1,0 +1,22 @@
+// Cloudflare Workers (static assets). The dashboard's Git integration runs
+// `wrangler deploy` on main and `wrangler versions upload` on other branches;
+// both read this file. No Worker script: everything is served from public/.
+{
+  "$schema": "https://developers.cloudflare.com/schemas/wrangler.json",
+  "name": "kaburi",
+  "compatibility_date": "2026-08-31",
+  "assets": {
+    "directory": "./public",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+
+  // The front door is the custom domain only.
+  "routes": [
+    { "pattern": "kaburi.ai-apps.work", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+
+  "observability": { "enabled": false }
+}
