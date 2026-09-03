@@ -76,8 +76,8 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 | 項目 | 結果 |
 |---|---|
 | Win11 / ChromeOS 安裝成 PWA、開檔、改、存 | 通過 |
-| Android 安裝成 PWA 後重開 | 每次都要點一下重新授權。Android 的 File System Access 沒有持久權限，這是平台限制不是 bug；整個畫面任一處點下去都算授權 |
-| 桌機安裝成 PWA、Chrome 122 持久權限 | 通過。重開時不帶手勢的 `requestPermission()` 靜默回 granted，不用再點；share target 零點擊 |
+| **資料夾授權：桌機安裝的 PWA** | **零點擊。**Chrome 122 的持久權限把授權記在設定檔裡，重開時直接回 `granted`。經過後續幾輪改動仍然成立，share target 也是零點擊 |
+| **資料夾授權：Android** | **每次文件重新建立就要點一下**，分頁與安裝的 PWA 沒有差別。授權跟著文件走，Android 沒有持久權限這一層，網頁端沒有 API 能繞過去。<br>會觸發：手動 refresh、從最近使用清單滑掉再開、系統回收背景後再開。<br>不會觸發：切到別的 app 再切回來（文件還活著）、app 內部的開檔／存檔／改名／下檯。<br>所以一段連續的工作只在開頭付一次成本。整個畫面任一處點下去都算授權，不用瞄準按鈕 |
 | share target（phase 2 §10 的 1–5） | 通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
 
 **踩過的坑**（交接文件 §7 沒有的，都有測試守著）
@@ -94,6 +94,7 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 **待實機驗證**（交接文件 §9 尚未勾的）
 
 - Pixel：改名走 copy+delete，確認磁碟上真的變了
+- Android 的重新授權提示裡有沒有「每次造訪都允許」這個選項。有的話上面那一列就能改寫；目前的結論是沒有
 - 已安裝的 PWA 按全螢幕鍵，`display-mode: fullscreen` 是否切到 tablet mode
 - ChromeOS 檔案 app「開啟方式」點 `.md` 能否直接進來（file_handlers）
 - Windows 1280 / 1536 / 1920 確認沒有水平捲軸（本機只用 Linux Chromium 跑過同一個判斷式）
