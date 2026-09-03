@@ -75,7 +75,13 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 | 桌機安裝成 PWA、Chrome 122 持久權限 | 通過。重開時不帶手勢的 `requestPermission()` 靜默回 granted，不用再點；share target 零點擊 |
 | share target（phase 2 §10 的 1–5） | 通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
 
-**已修**：SW 離線退路只在殼的 cache 找（不會撈到 share cache）；stage 標題列長檔名換行兩行再裁，不再「…」；跨站 POST `/share` 綁 token 且在一般分頁一律要點一下。
+**已修**：SW 離線退路只在殼的 cache 找（不會撈到 share cache）；stage 標題列長檔名換行兩行再裁，不再「…」；跨站 POST `/share` 綁 token 且在一般分頁一律要點一下；直接導覽到子路徑不會蓋掉離線殼；大小寫改名有專屬訊息；檔名含 `$&` 不會讓提示文字錯亂。
+
+**還可以做**（不急，影響小）
+
+- 下檯只有滑動一條路，純鍵盤操作沒辦法把檔案下檯
+- toast 沒有 `aria-live`，螢幕閱讀器不會念出「已存回」「已上檯」
+- `scan()` 每次回到前景重讀整個資料夾的 metadata，資料夾大會慢。工作檯定位是小資料夾，先不優化
 
 **待實機驗證**（交接文件 §9 尚未勾的）
 

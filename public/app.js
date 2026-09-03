@@ -27,6 +27,7 @@ var STR = {
   unsupported: "This browser can't open local folders. Use Chrome 132+ or Edge on desktop, ChromeOS or Android.",
   overwrite: "\u201C%s\u201D already exists. Overwrite it?",
   badName: "Keep it .md, .html or .txt — no slashes.",
+  sameFile: "That name is the same file here.",
   failed: "Failed: %s", denied: "Folder access was not granted.",
   loose: "Opened from outside the folder — rename is off.",
   fullscreen: "Fullscreen", top: "Top",
@@ -52,6 +53,7 @@ var STR = {
   unsupported: "這個瀏覽器不能開本機資料夾。請用桌機、ChromeOS 或 Android 上的 Chrome 132+ 或 Edge。",
   overwrite: "「%s」已經存在，覆蓋掉它？",
   badName: "只能是 .md、.html、.txt，不能有斜線。",
+  sameFile: "這個名字在這裡就是同一個檔。",
   failed: "失敗：%s", denied: "沒有拿到資料夾的權限。",
   loose: "從資料夾外開的檔案，不能改名。",
   fullscreen: "全螢幕", top: "回頂端",
@@ -67,7 +69,8 @@ var lang = PREF.get("lang", "en");
 if (lang !== "zh") lang = "en";
 function t(k, v) {
  var s = STR[lang][k] || k;
- if (v !== undefined) s = s.replace("%n", v).replace("%s", v);
+ /* function form: a value holding $&, $` or $' must not be read as a replacement pattern */
+ if (v !== undefined) s = s.replace("%n", function () { return v; }).replace("%s", function () { return v; });
  return s;
 }
 
@@ -503,7 +506,7 @@ async function renameFile(f, newName) {
    var nh = await dirHandle.getFileHandle(newName, {create: true});
    /* case-insensitive filesystems hand back the very same file for "a.md" → "A.md";
       deleting "a.md" afterwards would delete the only copy */
-   if (await nh.isSameEntry(f.handle)) { flash(t("badName")); return false; }
+   if (await nh.isSameEntry(f.handle)) { flash(t("sameFile")); return false; }
    var text = await (await f.handle.getFile()).text();
    var w = await nh.createWritable(); await w.write(text); await w.close();
    await dirHandle.removeEntry(old);
