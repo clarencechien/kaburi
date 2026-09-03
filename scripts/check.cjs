@@ -199,7 +199,7 @@ async function seed(page) {
     const keys = await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
       for (let i = 0; i < 100; i++) {
-        const c = await caches.open("kaburi-v1"); const k = await c.keys();
+        const c = await caches.open("kaburi-v2"); const k = await c.keys();
         if (k.length >= 8 && navigator.serviceWorker.controller) return k.map((r) => new URL(r.url).pathname);
         await new Promise((r) => setTimeout(r, 100));
       }
