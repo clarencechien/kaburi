@@ -14,7 +14,7 @@ public/
   boot.js             同步跑在 <head>：主題 / 語言 / 佈局，以及 *.pages.dev → 正式網域
   app.js              全部邏輯：資料夾把手、列表、stage、改名、便條
   app.css             三層深度、app / tablet 兩種佈局
-  manifest.json       file_handlers 在這裡
+  manifest.json       file_handlers 在這裡；display_override 開 window-controls-overlay，桌機 PWA 的 OS 標題列讓給 app
   sw.js               只為離線：precache 殼，其餘 cache-first
   icon-*.png          由 scripts/icons.cjs 產生
   _headers            Cloudflare Pages 回應標頭（CSP、HSTS、noindex…）
