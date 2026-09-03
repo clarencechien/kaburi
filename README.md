@@ -77,22 +77,31 @@ curl 可以是因為它只跑你打的那一行，請求可歸責到一個人；
 - `mode: 'no-cors'` 送不了 `Authorization` 與自訂標頭，回應也是 opaque
 - 表單 POST 送得出去但同樣帶不了那些標頭、也讀不到回應
 
-### 評估過的五條路
+### 評估過的六條路
 
-**1. imitator 變成可安裝的 PWA + share target，Kaburi 用 `navigator.share({files})`** ← 目前最好的答案
+**1. imitator 的 PWA 自己讀檔** ← 目前最好的答案
 
-Kaburi 不發佈，只把檔案交出去；imitator 在**自己的來源**收下（就是 Kaburi phase 2 那套 SW 攔 POST 的機制），用自己的憑證 PUT。
+imitator 的 PWA 用 `showOpenFilePicker()`（或存一份資料夾 handle）選那份 HTML，讀進來，**同源** PUT。
 
-- Kaburi 這邊：不存 token、不改 CSP、不長後端、不碰 CORS。憑證住在擁有那個服務的 app 裡，本來就該如此
-- imitator 這邊：加 manifest + SW + 一個接收頁。比 CORS 白名單大，但是**純加法，一個既有的安全性質都不用動**（CORS 照樣不送、sandbox 隔離照樣成立）
-- 而且它剛好符合交接文件的分工：Kaburi 處理完交棒，發佈是 imitator 的事，Kaburi 沒有長出「呈現」的功能
-- **待驗證**：`navigator.canShare({files})` 對 `text/html` 是否回 true（Chrome 對可分享的檔案類型有白名單）。這是唯一的技術未知，只能實機驗
+- **Kaburi 一行都不用改。** 檔案早就在磁碟上，imitator 自己去拿
+- 沒有任何技術未知，機制也最少：一個檔案選擇器加一次 `fetch`
+- 桌機與手機同一套程式碼
+- 交接文件反對單檔 handle 的理由是「沒有父目錄，改名會失效」——**imitator 只需要讀，那個理由不成立**
+- 代價：動線要切到 imitator 再找檔案，比在 Kaburi 裡順手一按多幾步；Android 上每次重新授權要點一下（跟 Kaburi 一樣）
 
-**2. imitator 加 CORS 來源白名單**（約 20 行）
+**2. imitator 變成 share target，Kaburi 用 `navigator.share({files})`**
+
+Kaburi 不發佈，只把檔案交出去；imitator 在自己的來源收下（就是 Kaburi phase 2 那套 SW 攔 POST 的機制），用自己的憑證 PUT。
+
+人因比第 1 條好——你剛看完那個檔，還在情境裡，順手一按就送出。但要多做 manifest share_target、SW 攔 POST、multipart 解析、接收頁，而且**有一個技術未知**：Chrome 對可分享的檔案類型有白名單，要實機驗 `navigator.canShare({files})` 對 `text/html` 是否回 true。
+
+適合當第 1 條做完之後的順手優化，不適合當起點。
+
+**3. imitator 加 CORS 來源白名單**（約 20 行）
 
 只套用在 `/v1/a*`（不碰 `/r/` 與 `/join`）、不用 `*`、**不開 `Access-Control-Allow-Credentials`**、帶 `Vary: Origin`。白名單能保住原本的性質：`Origin: null` 永遠比不中具體來源。代價是 token 要住在 Kaburi 的瀏覽器儲存裡。
 
-**3. Kaburi 長出自己的 Worker**
+**4. Kaburi 長出自己的 Worker**
 
 CORS 問題會完全消失（伺服器到伺服器不受 CORS 約束），而且 imitator 一行都不用改。但 token 放哪裡差很多：
 
@@ -105,37 +114,50 @@ CORS 問題會完全消失（伺服器到伺服器不受 CORS 約束），而且
 
 **代價**：破壞「沒有後端」。那不是裝飾——它是為什麼 CSP 能設 `default-src 'none'`、為什麼整個 app 讀四個檔就能審完。加了之後每一份發佈的 HTML 都會經過自己寫的伺服器程式碼，「不落地」也變模糊。
 
-**4. 什麼都不做**（現在就可用的基準線）
+**5. 什麼都不做**（現在就可用的基準線）
 
 檔案本來就在磁碟上的資料夾裡，任何上傳介面的檔案選擇器都拿得到——imitator 的 `inbox/` 加 GitHub 網頁版在手機上已經能用。缺的只有「一鍵」。**Kaburi 的工作其實已經做完了**，這是評估其他選項時該對照的基準。
 
-**5. 已評估並否決**
+**6. 已評估並否決**
 
+- **imitator 的 Chrome 擴充功能**：原理完全成立，宣告 `host_permissions` 的擴充功能其 `fetch()` **豁免 CORS**——理由跟 curl 一樣，安裝時明確授權過，請求可歸責。token 放 `chrome.storage` 也比 `localStorage` 隔離得好。但**Android 版 Chrome 沒有擴充功能**，而動機情境正是手機；它解決的是桌機，而桌機本來就能用 curl。（Firefox Android 有擴充功能但沒有 File System Access。）否決理由是平台，不是技術
 - **用「簡單請求」繞過 preflight**：改成 `POST` + `Content-Type: text/plain`、token 放 body、不帶自訂標頭，這樣不會觸發 preflight，寫入真的會成功，而 slug 是 Kaburi 自己選的所以不需要讀回應。但 `no-cors` 的回應是 opaque，**500 和 200 分不出來**——對一個永久覆寫的操作，盲目發佈不可接受。而且 imitator 會失去「瀏覽器碰不到我的寫入 API」這個性質
 - **`window.open` + `postMessage` 傳 File**：structured clone 帶得動 File，但手機上會被彈窗阻擋，且對方一旦設了 COOP 就斷掉，太脆弱
 - **一次性上傳網址（presigned）**：誰來簽？簽的那次呼叫本身就要認證，雞生蛋
 
-### 就算通了，還有這些沒解決
+### 更根本的重新框架
+
+第 1 與第 2 條指向同一個結論：**這件事整個不屬於 Kaburi。**
+
+phase 3 也許不該是「Kaburi 長出發佈功能」，而該是「**imitator 長出手機發佈介面**」。Kaburi 保持乾淨（沒有 token、沒有後端、`connect-src 'self'` 原封不動），imitator 拿到一個它本來就想要的能力：不用 CLI 也能從手機推東西上去。
+
+這也是最符合交接文件那條分工的答案：Kaburi 處理完就下檯，發佈從頭到尾是 imitator 的事。**所以這一節的結論是「Kaburi 不做」，而不是「Kaburi 等別人改完再做」。**
+
+### 發佈端要處理的問題（跟走哪一條路無關）
+
+這些是 imitator 的 API 契約帶來的，發佈的程式碼寫在誰身上就是誰要處理：
 
 | 問題 | 細節 |
 |---|---|
 | slug 規則 | `/^[a-z0-9-]{1,64}$/`。檯面上的 `中文筆記.html` 沒有音譯就產不出合法 slug |
 | 覆寫是永久的 | R2 沒有 versioning，imitator spec §4.2 明寫「覆寫同一個 slug，舊的 HTML 就沒了」 |
-| 撞 slug | spec 自己說最可能的災難「不是惡意內鬼，是兩個自動發佈者撞到同一個 slug」——Kaburi 就會是那第二個。送出前必須先查、撞名要明確確認 |
+| 撞 slug | spec 自己說最可能的災難「不是惡意內鬼，是兩個自動發佈者撞到同一個 slug」。任何新的自動發佈者都是那第二個，送出前必須先查、撞名要明確確認 |
 | token 範圍 | `imi_{gid}_{epoch}_{rand}` 只能寫自己組，但能 LIST 與 DELETE 該組全部。外洩的補救是輪替 `writeSecret`，那會殺掉該組所有 CLI token |
 | `X-Sandbox` | 必須寫死 `on`，UI 連選項都不要有 |
 | 讀回來要 cookie | `group` 可見度的讀取要 imitator 網域上的 `__Host-imi` cookie，沒走過 magic link 的裝置會看到 404，容易被誤判成發佈失敗 |
 
-### 安全上要付的代價
+### Kaburi 要付的代價（只有第 3、4 條要付）
 
 - `connect-src` 要從 `'self'` 放寬，**會失去「就算真的有 XSS，資料也出不去」這個性質**
 - 儲存裡有了 token 之後，預覽 iframe 那條「`allow-scripts` 與 `allow-same-origin` 不能同時給」從規範升級成命脈——後面站著的是整組的報告庫
+
+**第 1、2 條 Kaburi 一毛都不用付**：不存 token、不改 CSP、不長後端。這是它們最大的優勢，也是為什麼結論會是換邊做。
 
 ### 還有一個架構問題
 
 交接文件開宗明義：「BentoDrop 運送、Kaburi 處理、SnapDeck 呈現。任何新功能先問它屬於哪一段，不屬於『處理』的一律不做。」**發佈報告屬於「呈現」**，照這條規矩應該擋掉。搜尋、標籤、多資料夾都是靠這條界線擋下來的。
 
-值得注意的是，上面第 1 條（share target）是唯一不牴觸這條界線的作法：Kaburi 只是把檔案交出去，沒有長出發佈能力。其餘每一條都是在 Kaburi 裡蓋一個發佈器。
+值得注意的是，上面第 1 條（imitator 自己讀檔）與第 2 條（share target）是唯一不牴觸這條界線的作法——前者 Kaburi 根本沒參與，後者 Kaburi 只是把檔案交出去。第 3、4 條都是在 Kaburi 裡蓋一個發佈器。
 
 ## 字級
 
@@ -184,7 +206,7 @@ CORS 問題會完全消失（伺服器到伺服器不受 CORS 約束），而且
 | 項目 | 狀態 | 原因 |
 |---|---|---|
 | 手動切換 app / tablet 的 chip | 等全螢幕鍵實機驗完 | 切不動才補，存 `kaburi.layout` |
-| 推上 imitator | 評估完，沒做 | 卡在 imitator 沒有 CORS 且那是刻意的。完整理由見上面「Phase 3 候選」一節 |
+| 推上 imitator | **不做**（結論是換邊） | 卡在 imitator 沒有 CORS 且那是刻意的；而最好的解法（imitator 的 PWA 自己讀檔）Kaburi 一行都不用改。完整理由見上面「Phase 3 候選」一節 |
 
 **不做**：開資料夾外的檔案、多資料夾、刪檔、搜尋／標籤／版本／同步、便條加 AI、抽共用 render 元件。
 
