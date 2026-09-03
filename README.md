@@ -43,6 +43,10 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - **HTML 預覽** 走 `srcdoc` + `sandbox=""`。CSP 會被 iframe 繼承，所以預覽裡的 script、外部圖片、外部 CSS 全部不會跑。`allow-scripts` 與 `allow-same-origin` 永遠不能同時給。
 - 沒有後端、沒有 analytics、沒有第三方資源。偏好（主題、語言、下檯清單）在 `localStorage`，資料夾把手在 IndexedDB，便條只在記憶體。
 
+## 字級
+
+所有 `font-size` 都是 `rem`，根字級是 `app.css` 最上面的 `--type`：桌機 `1`（16px 基準），`max-width:600px` 的手機 `1.15`。要調整就改這兩個數字，其他不用動。閱讀區在桌機是 18px / 1.8。
+
 ## 本機
 
 ```sh

@@ -349,7 +349,8 @@ function paintList() {
    e.querySelector("b").textContent = dirHandle ? dirHandle.name : "";
    e.querySelector("span").textContent = t("reauthHint");
    e.querySelector("button").textContent = t("reauth");
-   e.querySelector("button").addEventListener("click", reauth);
+   e.addEventListener("click", reauth);
+   e.classList.add("tap");
    h.appendChild(e); return;
   }
   var p = emptyPane("<span></span><br><button class=\"btn\" id=\"pick\"></button>");
@@ -420,7 +421,7 @@ function render() {
   var fr = document.createElement("iframe"); fr.className = "preview";
   fr.setAttribute("sandbox", "");            /* never add allow-same-origin next to allow-scripts */
   fr.setAttribute("referrerpolicy", "no-referrer");
-  fr.srcdoc = '<meta charset="utf-8"><style>body{font:18px/1.8 system-ui;padding:22px;color:#182126;background:#fff}img{max-width:100%}</style>' + f.body;
+  fr.srcdoc = '<meta charset="utf-8"><style>body{font:18px/1.8 system-ui;padding:22px;color:#182126;background:#fff}img{max-width:100%}@media(max-width:600px){body{font-size:20.7px}}</style>' + f.body;
   body.appendChild(fr); return; }
 
  var d = document.createElement("div"); d.className = "read"; d.innerHTML = md(f.body); body.appendChild(d);
