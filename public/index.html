@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-lang="en" data-layout="app">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kaburi</title>
+<meta name="theme-color" content="#0A0F12">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="A counter for md, html and txt files. Open, edit, rename, save back.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="/app.css">
+<script src="/boot.js"></script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+
+<!-- 層 1：title -->
+<div class="title">
+  <div class="wordmark">KAB<i>U</i>RI</div>
+  <button class="chip" id="fsBtn" aria-label="Fullscreen" hidden>
+    <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  </button>
+  <button class="chip" id="langBtn">中</button>
+  <button class="chip" id="themeBtn" aria-label="Theme">
+    <svg id="themeIcon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+  </button>
+</div>
+
+<div class="shell">
+<main>
+
+  <section class="view on" id="v-files">
+    <div class="filecol">
+      <!-- 層 2：status -->
+      <div class="status"><button class="wd" id="wd"></button><button class="scope" id="scope" hidden></button></div>
+      <!-- 層 3：content -->
+      <div class="pane">
+        <div class="counter"><div id="rows"></div></div>
+        <button class="add" id="addFile" aria-label="New file" hidden>
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage" data-empty="pick a slice">
+      <div class="sbar">
+        <button class="ico back" id="back" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <button class="fname" id="fname"></button>
+        <button class="vtog" id="vtog" data-mode="view">
+          <span class="lbl" id="vlbl">view</span><span class="thumb"></span>
+        </button>
+        <button class="save" id="save" hidden>Save</button>
+      </div>
+      <div class="sbody" id="sbody"></div>
+    </div>
+  </section>
+
+  <section class="view" id="v-notes">
+    <div class="status"><b id="nTitle" class="cjk">Notes</b><span id="nHint"></span></div>
+    <div class="pane">
+      <div class="notes" id="noteList"></div>
+      <button class="add" id="add" aria-label="New note">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+    <div class="ephem" id="ephem"></div>
+  </section>
+
+</main>
+
+<!-- 層 1：tabs -->
+<div class="tabs" role="tablist">
+  <button role="tab" id="tab-files" aria-selected="true">
+    <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h9"/></svg><span id="tabF">Files</span>
+  </button>
+  <button role="tab" id="tab-notes" aria-selected="false">
+    <svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z"/><path d="M19 15h-5v5"/></svg><span id="tabN">Notes</span>
+    <span class="dot" id="dot" hidden></span>
+  </button>
+</div>
+</div>
+
+</body>
+</html>
