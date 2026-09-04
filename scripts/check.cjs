@@ -192,9 +192,8 @@ async function seed(page) {
 
     /* yaml: line tinting only, never a structural claim */
     await page.click(".slice:has-text('conf.yaml')");
-    await page.waitForSelector("#stage.open #src");
-    await page.click("#vtog");
-    await page.waitForSelector(".plainread .ykey");
+    await page.waitForSelector("#stage.open .plainread .ykey");
+    check(await page.$eval("#vtog", (e) => e.dataset.mode) === "view", "yaml opens in view: tinting makes it differ from the source");
     check(await page.$$eval(".plainread .ykey", (e) => e.map((x) => x.textContent)).then((k) => k.includes("root") && k.includes("key")),
       "yaml keys are tinted");
     check(await page.$$eval(".plainread .yval", (e) => e.map((x) => x.textContent)).then((v) => v.includes("value")),

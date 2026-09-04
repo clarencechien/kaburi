@@ -166,8 +166,8 @@ var TYPES = {
  log:      {cls: "plain", view: "plain",    open: "edit"},
  json:     {cls: "data",  view: "json",     open: "view"},
  csv:      {cls: "data",  view: "table",    open: "view"},
- yaml:     {cls: "data",  view: "plain",    open: "edit", tint: "yaml"},
- yml:      {cls: "data",  view: "plain",    open: "edit", tint: "yaml"}
+ yaml:     {cls: "data",  view: "plain",    open: "view", tint: "yaml"},
+ yml:      {cls: "data",  view: "plain",    open: "view", tint: "yaml"}
 };
 var MAX_OPEN = 1048576;          /* 1 MB: above this we do not open at all, no renderer can save a phone from it */
 function typeOf(name) {

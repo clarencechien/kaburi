@@ -58,8 +58,8 @@ var TYPES = {
   log:      {class: "plain", view: "plain",    open: "edit"},
   json:     {class: "data",  view: "json",     open: "view"},
   csv:      {class: "data",  view: "table",    open: "view"},
-  yaml:     {class: "data",  view: "plain",    open: "edit", tint: "yaml"},
-  yml:      {class: "data",  view: "plain",    open: "edit", tint: "yaml"},
+  yaml:     {class: "data",  view: "plain",    open: "view", tint: "yaml"},
+  yml:      {class: "data",  view: "plain",    open: "view", tint: "yaml"},
 };
 function typeOf(name) {
   var m = /\.([a-z0-9]+)$/i.exec(name);
@@ -69,7 +69,7 @@ function typeOf(name) {
 
 `typeOf()` 回 `null` 的意義維持不變（不算數），但現在只有一個地方定義，且回傳的是一筆記錄而不是一個字串。
 
-**預設模式的規則不是逐一挑的，是推導出來的**：view 的產出跟原始碼**明顯不同**就進 view，一樣就進 edit。所以 md / html / json / csv 進 view，txt / log / yaml 進 edit。這條規則讓以後加類型不用再吵。
+**預設模式的規則不是逐一挑的，是推導出來的**：view 的產出跟原始碼**明顯不同**就進 view，一樣就進 edit。所以 md / html / json / csv / yaml 進 view，txt / log 進 edit。yaml 一開始被歸在 edit，加了逐行上色之後它的 view 就不再等同原始碼，依同一條規則改為 view——**規則沒有例外，是輸入變了**。這條規則讓以後加類型不用再吵。
 
 ## 5. 四個 renderer
 
