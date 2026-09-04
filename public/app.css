@@ -32,6 +32,7 @@
   --glow:.34;
   --tint-bg:.10;
   --tint-line:.30;
+  --tamago:#D7B45A;
   --shadow:0 1px 0 rgba(0,0,0,.4);
   --backdrop:#05080A;
   color-scheme:dark;
@@ -53,6 +54,7 @@
   --glow:.20;
   --tint-bg:.24;
   --tint-line:.48;
+  --tamago:#9A7420;
   --shadow:0 1px 2px rgba(24,33,38,.08);
   --backdrop:#D9D7CE;
   color-scheme:light;
@@ -177,9 +179,11 @@ main{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;position
   position:absolute;left:0;top:6px;bottom:6px;width:4px;
   border-radius:0 3px 3px 0;flex:none;
 }
-.cut.md{background:var(--maguro);box-shadow:0 0 10px color-mix(in srgb,var(--maguro) calc(var(--glow)*100%),transparent)}
-.cut.html{background:var(--sake);box-shadow:0 0 10px color-mix(in srgb,var(--sake) calc(var(--glow)*100%),transparent)}
-.cut.txt{background:var(--ika)}
+.cut.doc{background:var(--maguro);box-shadow:0 0 10px color-mix(in srgb,var(--maguro) calc(var(--glow)*100%),transparent)}
+.cut.page{background:var(--sake);box-shadow:0 0 10px color-mix(in srgb,var(--sake) calc(var(--glow)*100%),transparent)}
+.cut.data{background:var(--tamago);box-shadow:0 0 10px color-mix(in srgb,var(--tamago) calc(var(--glow)*100%),transparent)}
+.cut.plain{background:var(--ika)}
+.cut.other{background:var(--tx-3)}
 .slice .t{flex:1;min-width:0}
 .slice .t b{display:block;font-family:var(--mono);font-size:1.031rem;font-weight:400;line-height:1.35;word-break:break-all;letter-spacing:-.01em}
 .slice .t small{display:block;font-size:0.8438rem;line-height:1.3;color:var(--tx-3);margin-top:1px;font-variant-numeric:tabular-nums}
@@ -249,6 +253,7 @@ input.fname{
   transform:translateX(0);background:var(--sake);
   box-shadow:0 0 12px color-mix(in srgb,var(--sake) 55%,transparent);
 }
+.vtog:disabled{opacity:.45}
 .vtog .lbl{
   position:absolute;inset:0;display:grid;place-items:center;padding-right:26px;
   font-family:var(--mono);font-size:0.8438rem;letter-spacing:.04em;color:var(--tx-2);
@@ -272,6 +277,18 @@ input.fname{
   background:var(--content);color:var(--tx);outline:none;caret-color:var(--sake);
 }
 .read{padding:20px 20px 64px;max-width:70ch;margin:0 auto;width:100%;font-size:1.125rem;line-height:1.8}
+/* css: plain / json — wraps rather than scrolls: a non-wrapping <pre> would push the page sideways
+   and break the no-horizontal-scroll guarantee the layout tests assert at four widths. */
+.plainread{
+  margin:0;padding:20px 20px 64px;width:100%;
+  font-family:var(--mono);font-size:1rem;line-height:1.8;color:var(--tx);
+  white-space:pre-wrap;word-break:break-word;
+}
+.csvbar{
+  display:flex;align-items:center;gap:9px;padding:11px 20px 0;
+  font-size:.875rem;color:var(--tx-2);cursor:pointer;
+}
+.csvbar input{accent-color:var(--accent);width:17px;height:17px;flex:none}
 .strip{
   flex:none;background:color-mix(in srgb,var(--sake) 12%,var(--content));
   color:var(--sake);font-size:0.875rem;padding:7px 17px;

@@ -92,6 +92,10 @@ async function seed(page) {
     /* open html: sandboxed srcdoc must render under the CSP, script must not run */
     await page.click(".slice:has-text('o11y-report.html')");
     await page.waitForSelector("#stage.open iframe.preview");
+    const onDiskNames = async () => page.evaluate(async () => {
+      const d = await navigator.storage.getDirectory(); const n = [];
+      for await (const [k] of d.entries()) n.push(k); return n;
+    });
     const frame = page.frames().find((f) => f.parentFrame() && f.url() === "about:srcdoc");
     await page.waitForTimeout(300);
     const txt = frame ? await frame.evaluate(() => document.body.innerText).catch(() => "") : "";
@@ -103,6 +107,131 @@ async function seed(page) {
     await page.waitForSelector("#stage.open .read table");
     const hrefs = await page.$$eval(".read a", (as) => as.map((a) => a.getAttribute("href")));
     check(hrefs[0] === "https://example.com" && hrefs[1] === "#", "javascript: link neutralised " + JSON.stringify(hrefs));
+
+    await back(page);
+
+    /* ── file types ───────────────────────────────────────────────────────── */
+    const writeBytes = (name, bytes) => page.evaluate(async ({ name, bytes }) => {
+      const d = await navigator.storage.getDirectory();
+      const h = await d.getFileHandle(name, { create: true });
+      const w = await h.createWritable(); await w.write(new Uint8Array(bytes)); await w.close();
+    }, { name, bytes });
+    const writeText = (name, text) => page.evaluate(async ({ name, text }) => {
+      const d = await navigator.storage.getDirectory();
+      const h = await d.getFileHandle(name, { create: true });
+      const w = await h.createWritable(); await w.write(text); await w.close();
+    }, { name, text });
+    const bytesOf = (name) => page.evaluate(async (name) => {
+      const d = await navigator.storage.getDirectory();
+      const f = await (await d.getFileHandle(name)).getFile();
+      return Array.from(new Uint8Array(await f.arrayBuffer()));
+    }, name);
+
+    await writeText("cfg.json", '{"b":2,"a":[1,2]}');
+    await writeText("rows.csv", 'name,note\n"a,1","says ""hi"""\nb,2');
+    await writeText("conf.yaml", "root:\n  key: value\n  list:\n    - one");
+    await writeText("run.log", "  indented\n# not a heading\n*not em*");
+    await page.evaluate(() => window.__kaburi.scan());
+    await page.waitForFunction(() => window.__kaburi.files().length === 12);
+    const bands = await page.$$eval(".slice", (els) => els.map((e) => [
+      e.querySelector("b").textContent, e.querySelector(".cut").className]));
+    const bandOf = (n) => (bands.find((b) => b[0] === n) || [null, "missing"])[1];
+    check(bandOf("cfg.json") === "cut data" && bandOf("rows.csv") === "cut data" && bandOf("conf.yaml") === "cut data",
+      "data types share the tamago band " + JSON.stringify(bands.map((b) => b[1])));
+    check(bandOf("run.log") === "cut plain", "log takes the plain band");
+
+    await page.click(".slice:has-text('cfg.json')");
+    await page.waitForSelector("#stage.open .plainread");
+    check((await page.$eval(".plainread", (e) => e.textContent)).includes('  "b": 2'), "json opens in view, pretty printed");
+    await back(page);
+
+    await page.click(".slice:has-text('rows.csv')");
+    await page.waitForSelector("#stage.open .read table");
+    const cells = await page.$$eval(".read td", (t) => t.map((e) => e.textContent));
+    const heads = await page.$$eval(".read th", (t) => t.map((e) => e.textContent));
+    check(heads.join("|") === "name|note", "csv first row becomes the header");
+    check(cells[0] === "a,1" && cells[1] === 'says "hi"', "quoted commas and doubled quotes survive " + JSON.stringify(cells));
+    await page.click(".csvbar input");
+    await page.waitForFunction(() => document.querySelectorAll(".read th").length === 0);
+    check((await page.$$eval(".read td", (t) => t.length)) === 6, "unchecking the header box redraws with every row as data");
+    await page.click(".csvbar input");
+    await back(page);
+
+    await page.click(".slice:has-text('run.log')");
+    await page.waitForSelector("#stage.open #src");
+    check(await page.$eval("#vtog", (e) => e.dataset.mode) === "edit", "log opens straight into edit");
+    await page.click("#vtog");
+    await page.waitForSelector(".plainread");
+    const plain = await page.$eval(".plainread", (e) => e.textContent);
+    check(plain.startsWith("  indented") && plain.includes("# not a heading"), "plain view keeps indentation and does not parse markdown");
+    check(await page.$$eval(".plainread h1", (h) => h.length) === 0, "plain view produces no headings");
+    await back(page);
+
+    /* rename across types */
+    await page.click(".slice:has-text('conf.yaml')");
+    await page.waitForSelector("#stage.open");
+    await page.click("#fname"); await page.fill("input#fname", "conf.json"); await page.press("input#fname", "Enter");
+    await page.waitForFunction(() => window.__kaburi.cur().name === "conf.json");
+    check((await onDiskNames()).includes("conf.json"), "rename md-family into .json is allowed and lands on disk");
+    await page.click("#fname"); await page.fill("input#fname", "conf.yaml"); await page.press("input#fname", "Enter");
+    await page.waitForFunction(() => window.__kaburi.cur().name === "conf.yaml");
+    await back(page);
+
+    /* broken json falls back instead of blocking */
+    await writeText("broken.json", "{oops");
+    await page.evaluate(() => window.__kaburi.scan());
+    await page.click(".slice:has-text('broken.json')");
+    await page.waitForSelector("#stage.open .strip");
+    check(/JSON/i.test(await page.$eval(".strip", (e) => e.textContent)) && (await page.$eval(".plainread", (e) => e.textContent)) === "{oops",
+      "unparseable json shows the raw text with a strip, not an error");
+    check(await page.$eval("#vtog", (e) => !e.disabled), "a broken json is still editable");
+    await back(page);
+
+    /* not UTF-8: view only, toggle disabled, save refuses */
+    await writeBytes("big5.log", [0xB4, 0xFA, 0xB8, 0xD5, 0x0A]);
+    await page.evaluate(() => window.__kaburi.scan());
+    await page.click(".slice:has-text('big5.log')");
+    await page.waitForSelector("#stage.open .strip");
+    check(await page.$eval("#vtog", (e) => e.disabled), "a non-UTF-8 file disables the view/edit toggle");
+    check(await page.evaluate(async () => {
+      const f = window.__kaburi.cur(); f.body = "clobbered";
+      await window.__kaburi.save();
+      const d = await navigator.storage.getDirectory();
+      const b = new Uint8Array(await (await (await d.getFileHandle("big5.log")).getFile()).arrayBuffer());
+      return b[0] === 0xB4;
+    }), "save refuses to write over a file it could not decode");
+    await back(page);
+
+    /* bytes the user did not touch survive a round trip */
+    const bomCsv = [0xEF, 0xBB, 0xBF, 0x61, 0x2C, 0x62, 0x0D, 0x0A, 0x31, 0x2C, 0x32, 0x0D, 0x0A];
+    await writeBytes("excel.csv", bomCsv);
+    await page.evaluate(() => window.__kaburi.scan());
+    await page.click(".slice:has-text('excel.csv')");
+    await page.waitForSelector("#stage.open .read table");
+    await page.evaluate(async () => { window.__kaburi.markDirty(); await window.__kaburi.save(); });
+    await page.waitForTimeout(200);
+    check(JSON.stringify(await bytesOf("excel.csv")) === JSON.stringify(bomCsv),
+      "a BOM + CRLF file saved untouched is byte-identical");
+    await back(page);
+
+    /* over 1 MB: stays on the counter, refuses to open */
+    await writeText("huge.log", "x".repeat(1048577));
+    await page.evaluate(() => window.__kaburi.scan());
+    await page.click(".slice:has-text('huge.log')");
+    await page.waitForTimeout(300);
+    check(!(await page.$eval("#stage", (e) => e.classList.contains("open"))), "a file over 1 MB does not open");
+    check(/1 MB/.test(await page.$eval("#toast", (e) => e.textContent)), "and says why");
+    check(await page.isVisible(".slice:has-text('huge.log')"), "but stays on the counter");
+
+    await page.evaluate(async () => {
+      const d = await navigator.storage.getDirectory();
+      for (const n of ["cfg.json", "rows.csv", "conf.yaml", "run.log", "broken.json", "big5.log", "excel.csv", "huge.log"]) {
+        try { await d.removeEntry(n); } catch (e) {}
+      }
+      await window.__kaburi.scan();
+    });
+    await page.click(".slice:has-text('kaburi-handoff.md')");
+    await page.waitForSelector("#stage.open .read table");
 
     /* edit + save writes to disk */
     await page.click("#vtog");
