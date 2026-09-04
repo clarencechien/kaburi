@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kaburi — 產品說明</title>
+<style>
+:root{
+  --chrome:#0A0F12; --chrome-tx:#DCE6E9; --chrome-tx-2:#6E8189; --chrome-line:#1B252B;
+  --status:#111A1F; --content:#162025; --raise:#1E2A31;
+  --line:#26343B; --line-2:#1E2A30;
+  --tx:#DBE6E9; --tx-2:#8399A2; --tx-3:#5B6F79;
+  --accent:#4FD5D2; --accent-ink:#06181A;
+  --maguro:#CF5A56; --sake:#DE8B58; --ika:#A9B8B2; --tamago:#D7B45A; --neon:#8DE05C;
+  --glow:.34; --backdrop:#05080A;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI","Noto Sans TC","PingFang TC",sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){
+  :root{
+    --status:#E5E3DA; --content:#F5F3ED; --raise:#FFFFFF;
+    --line:#D5D2C8; --line-2:#E2DFD5;
+    --tx:#182126; --tx-2:#55636A; --tx-3:#87949B;
+    --accent:#0C7B84; --accent-ink:#FFFFFF;
+    --maguro:#B24540; --sake:#BC7139; --ika:#7F8F89; --tamago:#9A7420; --neon:#3E7A24;
+    --glow:.20; --backdrop:#D9D7CE;
+    color-scheme:light;
+  }
+}
+*{box-sizing:border-box}
+html{background:var(--backdrop)}
+body{
+  margin:0 auto;max-width:820px;background:var(--content);color:var(--tx);
+  font-family:var(--sans);font-size:17px;line-height:1.8;
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);
+}
+/* 層 1：暖簾外，兩個主題都固定深色 */
+header{
+  background:var(--chrome);color:var(--chrome-tx);
+  padding:34px 28px 30px;border-bottom:1px solid var(--chrome-line);
+}
+.wordmark{font-size:1.5rem;font-weight:500;letter-spacing:.2em;margin:0}
+.wordmark i{
+  font-style:normal;color:var(--accent);position:relative;
+  text-shadow:0 0 10px color-mix(in srgb,var(--accent) 70%,transparent),
+              0 0 22px color-mix(in srgb,var(--accent) 40%,transparent);
+}
+.wordmark i::before{
+  content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;
+  transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,color-mix(in srgb,var(--accent) 30%,transparent) 0%,transparent 68%);
+  animation:lamp 5.5s ease-in-out infinite;
+}
+@keyframes lamp{0%,100%{opacity:.6}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+header p{margin:14px 0 0;color:var(--chrome-tx-2);font-size:1rem;max-width:46ch}
+main{padding:0 28px 72px}
+section{padding:34px 0;border-bottom:1px solid var(--line-2)}
+section:last-child{border-bottom:0}
+h2{
+  font-size:.8125rem;font-family:var(--mono);font-weight:500;letter-spacing:.14em;
+  color:var(--tx-3);margin:0 0 18px;text-transform:uppercase;
+}
+h3{font-size:1.0625rem;margin:26px 0 8px;font-weight:600}
+p{margin:0 0 14px;max-width:64ch}
+strong{color:var(--tx);font-weight:600}
+code{
+  font-family:var(--mono);font-size:.875em;background:var(--raise);
+  padding:1px 6px;border-radius:4px;color:var(--accent);
+}
+.lede{font-size:1.125rem;color:var(--tx-2);max-width:58ch}
+
+/* 是 / 不是 */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.two>div{background:var(--content);padding:18px 20px}
+.two h4{margin:0 0 10px;font-size:.8125rem;font-family:var(--mono);letter-spacing:.08em;font-weight:500}
+.two ul{margin:0;padding-left:1.15em;color:var(--tx-2);font-size:1rem}
+.two li{margin:.3em 0}
+.yes h4{color:var(--accent)}
+.no h4{color:var(--tx-3)}
+
+/* 檔案類型：色帶就是產品語言 */
+.types{margin:0;padding:0;list-style:none}
+.type{
+  position:relative;padding:14px 18px 14px 20px;margin-bottom:9px;
+  background:var(--raise);border:1px solid var(--line);border-radius:9px;overflow:hidden;
+}
+.type::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:4px;border-radius:0 3px 3px 0}
+.type.doc::before{background:var(--maguro);box-shadow:0 0 10px color-mix(in srgb,var(--maguro) calc(var(--glow)*100%),transparent)}
+.type.page::before{background:var(--sake);box-shadow:0 0 10px color-mix(in srgb,var(--sake) calc(var(--glow)*100%),transparent)}
+.type.data::before{background:var(--tamago);box-shadow:0 0 10px color-mix(in srgb,var(--tamago) calc(var(--glow)*100%),transparent)}
+.type.plain::before{background:var(--ika)}
+.type b{font-family:var(--mono);font-size:.9375rem;font-weight:400;display:block}
+.type span{display:block;color:var(--tx-2);font-size:.9375rem;margin-top:2px}
+.type em{font-style:normal;font-family:var(--mono);font-size:.75rem;color:var(--tx-3);letter-spacing:.06em}
+
+.demo{
+  background:var(--status);border:1px solid var(--line);border-radius:9px;
+  padding:14px 16px;font-family:var(--mono);font-size:.875rem;line-height:1.75;
+  white-space:pre-wrap;word-break:break-word;overflow-x:auto;margin:0 0 14px;
+}
+.k{color:var(--tx)} .v{color:var(--neon)} .pun{color:var(--tx-3)}
+
+.note{
+  border-left:2px solid color-mix(in srgb,var(--accent) 45%,transparent);
+  padding:2px 0 2px 14px;color:var(--tx-2);margin:0 0 14px;max-width:64ch;
+}
+.rules{margin:0;padding:0;list-style:none}
+.rules li{
+  padding:12px 0;border-top:1px solid var(--line-2);color:var(--tx-2);font-size:1rem;max-width:64ch;
+}
+.rules li:first-child{border-top:0}
+.rules b{color:var(--tx)}
+footer{
+  background:var(--chrome);color:var(--chrome-tx-2);padding:22px 28px;
+  font-family:var(--mono);font-size:.75rem;letter-spacing:.05em;
+}
+@media (max-width:620px){
+  body{font-size:16px}
+  header{padding:26px 18px 22px}
+  main{padding:0 18px 56px}
+  .two{grid-template-columns:1fr}
+}
+</style>
+
+<header>
+  <h1 class="wordmark">KAB<i>U</i>RI</h1>
+  <p>處理生魚片的工作檯。開一個固定資料夾裡的檔案，看、改、改名、存回原檔，再滑掉。</p>
+</header>
+
+<main>
+
+<section>
+  <h2>這是什麼</h2>
+  <p class="lede">東西放上檯面、處理完、下檯。它不是倉庫，也不是檔案管理器——檯面上只該有你現在正在處理的東西。</p>
+  <div class="two">
+    <div class="yes">
+      <h4>是</h4>
+      <ul>
+        <li>開一個固定資料夾裡的檔案</li>
+        <li>看、改、改名、存回原檔</li>
+        <li>暫時貼一段 token 的便條</li>
+      </ul>
+    </div>
+    <div class="no">
+      <h4>不是</h4>
+      <ul>
+        <li>檔案管理器</li>
+        <li>倉庫、筆記庫、同步工具</li>
+        <li>有搜尋、標籤、全文索引的東西</li>
+      </ul>
+    </div>
+  </div>
+  <p style="margin-top:18px">分工上：<strong>BentoDrop 運送、Kaburi 處理、SnapDeck 呈現</strong>。任何新功能先問它屬於哪一段，不屬於「處理」的一律不做。</p>
+</section>
+
+<section>
+  <h2>檔案類型</h2>
+  <p>副檔名就是類型選擇器。<code>+</code> 一律開 <code>untitled.md</code>，要別的類型就改名——沒有下拉選單。</p>
+  <ul class="types">
+    <li class="type doc"><b>.md .markdown</b><span>markdown 算繪：標題、表格、清單、引用</span><em>開啟時進 view</em></li>
+    <li class="type page"><b>.html .htm</b><span>沙箱 iframe 預覽，腳本與外部資源都不會跑</span><em>開啟時進 view</em></li>
+    <li class="type data"><b>.json</b><span>樹狀結構，物件與陣列可折疊</span><em>開啟時進 view</em></li>
+    <li class="type data"><b>.csv</b><span>表格，表頭可勾、數值欄靠右</span><em>開啟時進 view</em></li>
+    <li class="type data"><b>.yaml .yml</b><span>純文字加逐行上色</span><em>開啟時進 view</em></li>
+    <li class="type plain"><b>.txt .log</b><span>純文字，保留縮排，不解析任何語法</span><em>開啟時進 edit</em></li>
+  </ul>
+
+  <h3>進 view 還是 edit，是推導的不是挑的</h3>
+  <p>view 的產出跟原始碼<strong>明顯不同</strong>就進 view，一樣就進 edit。所以以後加類型不用再爭論——yaml 原本歸在 edit，加了上色之後它的 view 不再等同原始碼，依同一條規則改成 view。<strong>規則沒有例外，是輸入變了。</strong></p>
+
+  <h3>只有一個強調色</h3>
+  <p>螢光綠標出「值」，key 與標點保持安靜。一個顏色是強調，一整套 token 配色才是語法高亮——後者屬於 SnapDeck。</p>
+  <div class="demo"><span class="pun">▾</span> <span class="k">service</span><span class="pun">: </span><span class="v">"vector"</span>
+<span class="pun">▾</span> <span class="k">tags</span><span class="pun">: [ 2 ]</span>
+    <span class="k">0</span><span class="pun">: </span><span class="v">"ck"</span>
+    <span class="k">1</span><span class="pun">: </span><span class="v">"eap"</span></div>
+
+  <h3>csv 的數值欄是逐欄推論的</h3>
+  <p>一欄裡非空的格子<strong>全部</strong>都是數字，那一欄才算數值欄。文字欄裡夾一個 <code>42</code> 不會單獨跳色——逐格判斷在一欄文字中看起來像壞掉。開頭是 0 的（<code>007</code>、<code>0912345678</code>）當代碼不當數量，<code>0.5</code> 仍是數字。日期與布林值不上色：要上就得再給一個顏色，那就變成多色配色了。</p>
+
+  <h3>yaml 只上色，不解析</h3>
+  <p>逐行用正則切出 key、值、註解、清單符號。<strong>它從不宣稱懂結構</strong>，所以對 anchor、多行純量、flow 風格永遠不會給出錯誤的判讀——一個「看起來對但結構是錯的」檢視比純文字更危險，因為你會相信它。上色也不更動任何一個字元。</p>
+
+  <div class="note">白名單的職責不是「我們支援哪些格式」，是<strong>「存回去不會毀掉的檔案」</strong>。存檔是把字串寫回去的，二進位檔被當文字讀進來再存回去就永久毀了。這讓界線有客觀依據，不是品味問題。</div>
+</section>
+
+<section>
+  <h2>不會偷改你的檔案</h2>
+  <ul class="rules">
+    <li><b>只支援 UTF-8。</b>解碼不過的檔案顯示提示、只給看，連 view／edit 開關都停用——不能讓人打了半天字才發現存不回去。</li>
+    <li><b>BOM 與 CRLF 會被還原。</b>解碼器會剝掉 BOM、編輯區會把 CRLF 換成 LF；兩者都在讀取時記下、寫回時補回去。不改內容直接存，位元組完全相同。</li>
+    <li><b>超過 1 MB 不開。</b>該列仍留在檯面上，你看得到它存在。</li>
+    <li><b>解析失敗不擋你。</b>json 或 csv 解析不了就退回純文字加一條提示，不驗證、不報行號、不擋存檔。算繪是服務，不是驗證。</li>
+    <li><b>節點太多就退回文字。</b>免得手機被十萬個 DOM 節點拖垮。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>檯面</h2>
+  <p>依修改時間排序只留最近五筆，其餘收在「這個資料夾裡的全部」後面。<strong>最近</strong>看的是「我剛才在忙什麼」，所以按日期分組；<strong>全部</strong>是「找特定檔案」，所以平鋪，檔名才是主角。</p>
+  <h3>下檯不是刪除</h3>
+  <p>左右滑（或聚焦後按 <code>←</code> <code>→</code>）把檔案從檯面隱藏，<strong>完全不動磁碟</strong>。所以不需要確認、不需要復原——滑錯了再滑回來。</p>
+  <p>下檯記的是「檔名 + 當時的修改時間」。所以檔案被外部改動過會自己回到檯面、改名後舊紀錄自動失效、同名檔刪掉重建也會回來。不需要任何清理程序。</p>
+</section>
+
+<section>
+  <h2>看與改</h2>
+  <p>一顆膠囊在看與改之間切換，顏色跟著換：冷光是看、暖橙是改。<code>Save</code> 只在改過之後才出現。點檔名就能改名，改名的覆蓋防護會擋掉同名檔——這是整個 app 唯一會讓你損失資料的地方。</p>
+</section>
+
+<section>
+  <h2>便條</h2>
+  <p>貼上、用完、滑掉。<strong>關掉就沒了</strong>——不寫磁碟、不進資料庫、不同步。<code>複製並丟掉</code> 一顆按鈕做完兩件事，這是貼 token 最常走的動線，併起來就沒有忘記清的機會。</p>
+  <div class="note">不加 AI。要送到雲端 API 就跟「不落地」正面衝突，而且你自己會搞不清楚哪些東西出去過。</div>
+</section>
+
+<section>
+  <h2>兩種佈局</h2>
+  <p>不用視窗寬度決定，用<strong>有沒有全螢幕</strong>決定。一般視窗是單欄、底部分頁列，站在檯前快速處理；按下全螢幕才攤開成左側 rail 加檔案欄加工作區。</p>
+  <p>寬度是環境，全螢幕是意圖，只有後者該決定佈局。把視窗拉寬不代表你想攤開來看，只是視窗大。</p>
+</section>
+
+<section>
+  <h2>不落地</h2>
+  <ul class="rules">
+    <li><b>沒有後端、沒有分析、沒有第三方資源。</b>整個站是四個檔案，讀完就能審完。</li>
+    <li><b>檔案不離開你的裝置。</b>Kaburi 直接讀寫你選的那個資料夾，沒有任何上傳。</li>
+    <li><b>HTML 預覽跑在沙箱裡。</b>腳本、外部圖片、外部 CSS 一律不會執行或載入。</li>
+    <li><b>分享進來的檔案在瀏覽器分頁裡一定要點一下才寫入</b>，而且每份分享都綁一個一次性的權杖，別的網站塞進來的東西取不出來。</li>
+    <li><b>存的只有偏好。</b>主題、語言、下檯清單、csv 表頭勾選。內容一律不存。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>KABURI · 一個資料夾、一張檯面 · kaburi.ai-apps.work</footer>
+</html>

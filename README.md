@@ -54,7 +54,7 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 | `.html` `.htm` | 鮭橙 `--sake` | `sandbox=""` iframe | view |
 | `.json` | 玉子黃 `--tamago` | 樹狀結構，物件與陣列可折疊 | view |
 | `.csv` | 玉子黃 | 表格，表頭可勾、數值欄靠右 | view |
-| `.yaml` `.yml` | 玉子黃 | 純文字加逐行上色 | edit |
+| `.yaml` `.yml` | 玉子黃 | 純文字加逐行上色 | view |
 | `.txt` `.log` | 烏賊白 `--ika` | 純文字 | edit |
 
 **預設模式是推導的不是挑的**：view 的產出跟原始碼明顯不同就進 view，一樣就進 edit。所以以後加類型不用再吵。
