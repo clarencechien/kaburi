@@ -1,7 +1,7 @@
 {
   "name": "kaburi",
   "private": true,
-  "description": "A counter for md, html and txt files. Static PWA, deployed from public/ on Cloudflare Pages.",
+  "description": "A counter for md, html and txt files. Static PWA, deployed from public/ on Cloudflare Workers (Workers Assets).",
   "scripts": {
     "serve": "npx serve public",
     "icons": "NODE_PATH=$(npm root -g) node scripts/icons.cjs",

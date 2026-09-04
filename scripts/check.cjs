@@ -501,6 +501,27 @@ async function seed(page) {
       return r ? (r.headers.get("content-type") || "none") : "missing";
     });
     check(/text\/html/i.test(shellType), "navigating straight to a subresource does not become the offline shell (" + shellType + ")");
+
+    /* The runtime cache has to actually write. Until 2026-09-04 it never did: the fetch handler
+       called r.clone() inside the caches.open() callback, i.e. after respondWith() had already
+       locked the body — every put() rejected with "Response body is already used", unhandled and
+       invisible. Both checks above still passed, because PRECACHE alone satisfies them: the shell
+       was cached at install time, and a subresource that never gets stored also never becomes the
+       shell. So assert the thing PRECACHE cannot fake — that a fresh online load updates what is
+       in the cache. Serve a marker, load it, and require the cached copy to carry it. */
+    await page.goto(base + "/");
+    const runtimeWrote = await page.evaluate(async () => {
+      const url = "/app.js?cachecheck=" + Date.now();
+      const live = await (await fetch(url)).text();
+      for (let i = 0; i < 40; i++) {
+        const hit = await (await caches.open("kaburi-v4")).match(url);
+        if (hit) return (await hit.text()) === live;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return false;
+    });
+    check(runtimeWrote, "runtime cache actually stores what was fetched online (clone before respondWith)");
+
     await page.goto(base + "/");
     /* Drive the worker the way the attack does: a form POST from a different origin.
        Our own CSP (form-action 'none') forbids submitting such a form from a Kaburi page. */

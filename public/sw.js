@@ -65,7 +65,18 @@ self.addEventListener("fetch", (e) => {
          opening /icon-192.png in the address bar — must not be allowed to become the offline shell. */
       const storable = r.ok && !r.redirected &&
         (!nav || /text\/html/i.test(r.headers.get("content-type") || ""));
-      if (storable) caches.open(VERSION).then((c) => c.put(key, r.clone()));
+      /* clone() must happen NOW, synchronously, before this Response reaches respondWith().
+         caches.open() is a cross-process async call, so its callback always runs after
+         respondWith() has taken the Response and locked its body stream — a clone() in there
+         throws "Response body is already used". That rejection had no catch and no page can
+         see it, so the runtime cache silently never wrote anything: the offline copy stayed
+         frozen at whatever PRECACHE held when the SW installed, and every deploy that did not
+         bump VERSION left the offline build behind the online one. waitUntil keeps the write
+         alive past the fetch event; catch swallows quota errors, which are not worth failing over. */
+      if (storable) {
+        const copy = r.clone();
+        e.waitUntil(caches.open(VERSION).then((c) => c.put(key, copy)).catch(() => {}));
+      }
       return r;
     }).catch(() => caches.open(VERSION).then((c) => c.match(key)))   /* never fall back into the share cache */
   );
