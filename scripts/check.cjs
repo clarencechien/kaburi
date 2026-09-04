@@ -133,7 +133,6 @@ async function seed(page) {
     await writeText("run.log", "  indented\n# not a heading\n*not em*");
     await page.evaluate(() => window.__kaburi.scan());
     await page.waitForFunction(() => window.__kaburi.files().length === 12);
-    const beforeTypes = 12;
     const bands = await page.$$eval(".slice", (els) => els.map((e) => [
       e.querySelector("b").textContent, e.querySelector(".cut").className]));
     const bandOf = (n) => (bands.find((b) => b[0] === n) || [null, "missing"])[1];
@@ -163,9 +162,21 @@ async function seed(page) {
     await page.click(".csvbar input");
     await page.waitForFunction(() => document.querySelectorAll(".read th").length === 0);
     check((await page.$$eval(".read td", (t) => t.length)) === 6, "unchecking the header box redraws with every row as data");
-    check(await page.$$eval(".read td.num", (t) => t.map((e) => e.textContent)).then((n) => n.includes("2")),
-      "numeric cells are marked for right alignment");
+    check(await page.$$eval(".read td.num", (t) => t.length) === 0,
+      "one stray number in a text column does not make the column numeric");
     await page.click(".csvbar input");
+    await back(page);
+
+    /* numeric columns are inferred per column, and a leading zero means a code */
+    await writeText("users.csv", "UserID,Name,JoinDate,Phone,Score,IsActive\n" +
+      "101,Jane,2026-01-15,0912345678,3.5,True\n102,John,2026-02-20,0987654321,0.5,False");
+    await page.evaluate(() => window.__kaburi.scan());
+    await page.click(".slice:has-text('users.csv')");
+    await page.waitForSelector("#stage.open .read table");
+    const numCells = await page.$$eval(".read td.num", (t) => t.map((e) => e.textContent));
+    check(numCells.join("|") === "101|3.5|102|0.5", "only wholly numeric columns are marked " + JSON.stringify(numCells));
+    check(!numCells.some((c) => /^09/.test(c)), "a leading zero keeps a phone number as text");
+    check(!numCells.some((c) => /2026-/.test(c)), "dates are not numbers");
     await back(page);
 
     await page.click(".slice:has-text('run.log')");
@@ -259,7 +270,7 @@ async function seed(page) {
 
     await page.evaluate(async () => {
       const d = await navigator.storage.getDirectory();
-      for (const n of ["cfg.json", "rows.csv", "conf.yaml", "run.log", "broken.json", "big5.log", "excel.csv", "huge.log", "wide.json"]) {
+      for (const n of ["cfg.json", "rows.csv", "conf.yaml", "run.log", "broken.json", "big5.log", "excel.csv", "huge.log", "wide.json", "users.csv"]) {
         try { await d.removeEntry(n); } catch (e) {}
       }
       await window.__kaburi.scan();

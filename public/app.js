@@ -647,6 +647,23 @@ function csvBar() {
  });
  lab.appendChild(box); lab.appendChild(txt); return lab;
 }
+/* A column is numeric only when every non-empty cell in it is, so one stray number in a text column
+   does not jump out green and right-aligned. A leading zero means a code, not a quantity: 007 and
+   0912345678 stay text, while 0.5 is still a number. */
+function isNumeric(v) { return /^-?\d+(\.\d+)?$/.test(v) && !/^-?0\d/.test(v); }
+function numericColumns(rows, start) {
+ var ok = [], seen = [];
+ for (var r = start; r < rows.length; r++) {
+  for (var c = 0; c < rows[r].length; c++) {
+   var v = rows[r][c].trim();
+   if (!v) continue;
+   seen[c] = true;
+   if (ok[c] === undefined) ok[c] = true;
+   if (!isNumeric(v)) ok[c] = false;
+  }
+ }
+ return ok.map(function (f, i) { return f === true && seen[i] === true; });
+}
 function csvTable(rows) {
  var wrap = document.createElement("div"); wrap.className = "read";
  var tb = document.createElement("table");
@@ -656,12 +673,13 @@ function csvTable(rows) {
   rows[0].forEach(function (c) { var th = document.createElement("th"); th.textContent = c; hr.appendChild(th); });
   thead.appendChild(hr); tb.appendChild(thead); start = 1;
  }
+ var nums = numericColumns(rows, start);
  var tbody = document.createElement("tbody");
  for (var r = start; r < rows.length; r++) {
   var tr = document.createElement("tr");
-  rows[r].forEach(function (c) {
+  rows[r].forEach(function (c, ci) {
    var td = document.createElement("td"); td.textContent = c;
-   if (/^-?\d+(\.\d+)?$/.test(c.trim()) && c.trim()) td.className = "num";
+   if (nums[ci]) td.className = "num";
    tr.appendChild(td); });
   tbody.appendChild(tr);
  }
