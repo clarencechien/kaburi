@@ -52,9 +52,9 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 |---|---|---|---|
 | `.md` `.markdown` | 鮪紅 `--maguro` | markdown | view |
 | `.html` `.htm` | 鮭橙 `--sake` | `sandbox=""` iframe | view |
-| `.json` | 玉子黃 `--tamago` | pretty print | view |
-| `.csv` | 玉子黃 | 表格（表頭可勾） | view |
-| `.yaml` `.yml` | 玉子黃 | 純文字 | edit |
+| `.json` | 玉子黃 `--tamago` | 樹狀結構，物件與陣列可折疊 | view |
+| `.csv` | 玉子黃 | 表格，表頭可勾、數字欄靠右 | view |
+| `.yaml` `.yml` | 玉子黃 | 純文字加逐行上色 | edit |
 | `.txt` `.log` | 烏賊白 `--ika` | 純文字 | edit |
 
 **預設模式是推導的不是挑的**：view 的產出跟原始碼明顯不同就進 view，一樣就進 edit。所以以後加類型不用再吵。
@@ -65,6 +65,9 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - **開檔再存檔不改動使用者沒改的位元組。** BOM 會被解碼器剝掉、CRLF 會被 `<textarea>` 正規化成 LF，兩者都記下來在寫回時還原。驗收方式是「不改內容直接存，位元組完全相同」
 - **超過 1 MB 不開。** 規則對所有類型一致，該列仍留在檯面上
 - json / csv 解析失敗就退回純文字加一條提示，不驗證、不報行號、不擋存檔。render 是服務不是驗證
+- **只有一個強調色。** 螢光綠 `--neon` 標出「值」：json 的純量、csv 的數字欄、yaml 冒號後面的部分。key 與標點保持安靜。一個顏色是強調，一整套 token 配色才是語法高亮，後者屬於 SnapDeck
+- **yaml 只逐行上色，不解析結構。** 所以它對 anchor、多行純量、flow 風格永遠不會給出錯誤的判讀——它從不宣稱懂結構。上色也不更動任何一個字元
+- 節點太多（json 超過 4000 個、csv 超過 4000 個儲存格）就退回文字，避免手機被十萬個 DOM 節點拖垮
 - 不收 `.svg`（可執行的容器）、二進位、以及 `.sql` `.sh` `.py` 這類——收了下一步就是要語法高亮，定位會滑掉
 
 規格與被否決的選項見 [`docs/filetypes-spec.md`](docs/filetypes-spec.md)。
