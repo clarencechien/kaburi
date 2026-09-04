@@ -4,6 +4,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Kaburi 工作檯</title>
 <meta name="description" content="一個資料夾、一張檯面：Kaburi 怎麼處理 md、html、json、csv、yaml 與 log。">
+<!-- ⚠️ 這一頁**不在部署範圍內**(wrangler 的 assets.directory 是 ./public),所以它
+     載入 Google Fonts、又有一段行內 <script>,目前不影響線上的資安基線 ——
+     README 說的「沒有第三方資源」只在它留在 docs/ 底下時成立。
+
+     如果哪天要把它搬進 public/ 上線:字型改自託管、行內腳本抽成獨立檔。
+     **不要為了這一頁放寬 public/_headers 的 CSP** —— 那條 CSP 保護的是會處理
+     使用者檔案的 app,為了一頁說明文件鬆掉並不划算。 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=Noto+Sans+TC:wght@400;700&display=swap">
