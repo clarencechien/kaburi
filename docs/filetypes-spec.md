@@ -2,7 +2,7 @@
 
 接續交接文件與 phase 2。本文件規格化「Kaburi 認得哪些檔案、怎麼呈現、怎麼改名」。
 
-> **狀態：草稿。** §11 有尚未決定的項目，決定完才動手。
+> **狀態：草稿。** §11 是已定案的決定，§18 還有兩題待回。
 
 ---
 
@@ -58,8 +58,8 @@ var TYPES = {
   log:      {class: "plain", view: "plain",    open: "edit"},
   json:     {class: "data",  view: "json",     open: "view"},
   csv:      {class: "data",  view: "table",    open: "view"},
-  yaml:     {class: "data",  view: "plain",    open: "edit"},   // §11.2
-  yml:      {class: "data",  view: "plain",    open: "edit"},   // §11.2
+  yaml:     {class: "data",  view: "plain",    open: "edit"},
+  yml:      {class: "data",  view: "plain",    open: "edit"},
 };
 function typeOf(name) {
   var m = /\.([a-z0-9]+)$/i.exec(name);
@@ -94,7 +94,7 @@ function typeOf(name) {
 最小可用：支援雙引號包住的欄位（欄位內可含逗號、換行、跳脫的引號）、CRLF、BOM。
 
 - 欄數不齊的列**照原樣呈現**，不補空欄也不報錯
-- 第一列一律當表頭（§11.3）
+- 第一列是否當表頭由勾選框決定（§12）
 
 ## 6. 色帶
 
@@ -106,7 +106,7 @@ function typeOf(name) {
 | `page` | `--sake` 鮭橙 | html |
 | `plain` | `--ika` 烏賊白 | txt、log |
 | `data` | `--tamago` 玉子黃（**新增**） | json、csv、yaml |
-| `other` | 待決（§11.1） | 待決 |
+| `other` | 保留（中性色） | 目前沒有；供以後加類型用，不必重挑顏色 |
 
 CSS class 從 `.cut.md` 等改為 `.cut.doc` / `.page` / `.plain` / `.data`。`--tamago` 需要暗亮兩個主題各一個值，並與現有三色在兩個主題下都分得開。
 
@@ -142,6 +142,7 @@ CSS class 從 `.cut.md` 等改為 `.cut.doc` / `.page` / `.plain` / `.data`。`-
 ## 9. 安全
 
 - **不新增任何 `innerHTML` 路徑。** `plain`、`json`、`table` 三個 renderer 一律用 `document.createElement` + `textContent` 建 DOM。目前只有 markdown renderer 用 `innerHTML`，它自己會跳脫，這個現況不能被打破
+- **`app.js:310` 的色帶是塞進 `innerHTML` 的**（`'<span class="cut ' + f.kind + '">'`）。改成 `type.class` 之後，那個值**必須永遠來自寫死的封閉集合**，不能有任何路徑讓檔名影響它
 - CSV 的儲存格內容是不受信任的（檔案可能是下載來的），一律 `textContent`
 - html 的 `sandbox=""` 不變，`allow-scripts` 與 `allow-same-origin` 永遠不能同時給
 - 新類型不改 CSP，不新增外部請求
@@ -153,35 +154,94 @@ CSS class 從 `.cut.md` 等改為 `.cut.doc` / `.page` / `.plain` / `.data`。`-
 - render：json pretty、csv 表格、txt/log 純文字（**確認縮排沒被吃掉、`#` 沒變成標題**）
 - render 失敗：壞掉的 json 退回純文字並顯示提示條，且仍可切 edit 存檔
 - 分享落檔：`data.json` 落地就是 `data.json`，不是 `data.json.md`
+- 大檔：造一個 >1 MB 的檔，確認不開、toast 出現、該列仍在檯面上
+- 版面：`plain` 與 `json` 在 412 寬度不產生水平捲軸（既有的四寬度斷言要繼續綠）
 - 既有 56 條全部要繼續綠
 
-## 11. 待決
+## 11. 已決定
 
-### 11.1 `other` 是什麼
+| 項目 | 決定 |
+|---|---|
+| `other` | **(a) 保留色**。白名單內、不屬於四類的類型用的中性色。白名單外的檔案維持不上檯（那是獨立 feature，不混進來） |
+| yaml 的 view | **`plain`**。不內嵌 YAML parser |
+| CSV 表頭 | **一個勾選框**，勾了第一列當表頭。位置與狀態見 §12 |
+| 大檔 | **超過 1 MB 就不開**。見 §13 |
 
-你說「白名單，tamago 是資料類，然後還有一個其他」。兩種讀法差很多：
+## 12. CSV 表頭勾選框
 
-- **(a) 保留色**：白名單內、但不屬於四類的類型用的中性色。以後加類型不用重挑顏色。**改動小。**
-- **(b) 白名單外的檔案也上檯，但變灰、唯讀**：檯面不再對資料夾說謊，你看得到 `.pdf` 在那裡，只是開不了。**但這讓 Kaburi 往檔案管理器靠**，而交接文件明說不做。而且檯面只留最近五筆，一個 Downloads 資料夾會被雜訊塞爆。
+**位置**：放在 view 模式表格的**上方**，不放工具列。工具列已有返回／檔名／view-edit／Save 四件，手機 412 寬長檔名還會折成兩行，再加第五件會擠爆。
 
-我傾向 (a)。要 (b) 的話它是獨立的一個 feature，不該混在這次。
+**狀態存哪**：`localStorage` 的 `kaburi.csvHeader`，預設**開**（多數 CSV 有表頭），與 theme / lang 同一類的介面偏好。
 
-### 11.2 yaml 的 view 要 pretty 到什麼程度
+> 替代方案是逐檔記憶（像 `kaburi.stowed` 那樣的對照表），UX 較好但會長出第三張需要清理的表，而且表頭旗標沒有 mtime 那種天然的失效條件。先做全域，不夠再說。
 
-你說 json/yaml/csv 都要 pretty。json 和 csv 都便宜（原生 API、三十行解析器），**但 yaml 沒有原生解析器**，要真的 pretty 就得把一個 YAML parser 內嵌進 `app.js`（CSP 是 `script-src 'self'`，不能載外部函式庫）。那是好幾百行、且 YAML 的邊角案例很多。
+## 13. 大檔：超過 1 MB 不開
 
-我的建議：**yaml 用 `plain`**。YAML 本來就是設計成人可讀的，已經有縮排，pretty 化能加的價值很低，不值得那個體積與風險。上表暫時照這個寫。你若堅持要 parse，那是獨立一個 phase。
+在 `openFile()` 一開始擋，用 `scan()` 剛抓到的 `f.size`：
 
-### 11.3 CSV 的第一列一定是表頭嗎
+- 超過就**不開 stage**，用 toast 說明；**該列仍留在檯面上**（你要看得到它存在）
+- 規則對**所有類型一致**，包含既有的 md / html / txt——比逐類型的門檻好解釋
+- 這會改變既有行為：現在一份 2 MB 的 md 開得起來，之後不行。以目前的使用情境（草模種子資料最大 210 KB）1 MB 有很大餘裕
 
-有些 log 匯出的 CSV 沒有表頭，第一列當表頭會少一筆資料。選項：一律當表頭（簡單、可預期）／偵測（會猜錯）。我傾向一律當表頭，因為猜錯比固定規則更難解釋。
+## 14. 需要改的地方（完整清單）
 
-### 11.4 `.tsv` 收不收
+`kindOf` / `f.kind` 的每一個使用點都在這裡，一個都不能漏：
 
-你列的是 csv，但 tsv 是它的雙胞胎，解析器只差一個分隔字元。順手收還是維持你列的清單？
+| 位置 | 現在 | 要變成 |
+|---|---|---|
+| `app.js:150` | `kindOf()` 回字串 | `typeOf()` 回記錄 |
+| `app.js:165` | `scan()` 過濾 | 用 `typeOf()` |
+| `app.js:310` | `.cut ' + f.kind` 塞進 `innerHTML` | 改塞 `type.class`，**必須維持封閉集合**（見 §9） |
+| `app.js:433` | `f.kind === "txt" ? "edit" : "view"` | 用 `type.open` |
+| `app.js:462` | `f.kind === "html"` | 用 `type.view` 分派四個 renderer |
+| `app.js:478` | `validName()` | 用 `typeOf()` |
+| `app.js:534` | `renameFile()` 更新 `f.kind` | 更新為記錄 |
+| `app.js:674` | `safeName()` 補 `.md` | 白名單內原樣保留 |
+| **`app.js:803`** | **`bindLaunchQueue()` 的 `kindOf(h.name) \|\| "txt"`** | **容易漏。OS「開啟方式」進來的檔案也要走同一張表** |
+| `app.css:180-182` | `.cut.md/.html/.txt` | `.cut.doc/.page/.plain/.data/.other` |
+| `manifest.json` | 兩份 accept | 見 §8 |
 
-### 11.5 大檔的上限
+### 14.1 新增的文案（en / zh 各一）
 
-現在沒有任何大小保護。一個 10 MB 的 log 走 `plain` 還好，但 CSV 建成表格會產生幾十萬個 DOM 節點，手機會當掉。
+- 解析失敗的提示條
+- CSV 表頭勾選框的標籤
+- 超過 1 MB 的 toast
+- 編碼有問題的提示條（若採用 §15）
 
-建議：超過某個門檻（例如 1 MB）時 `table` 與 `json` 自動退回 `plain` 並顯示提示條。門檻要多少、或要不要做，你決定。
+## 15. 新發現的風險：編碼
+
+**這一項是加 `.log` 帶出來的，而且會毀資料。**
+
+`file.text()` 一律以 UTF-8 解碼，遇到不合法的位元組會換成 U+FFFD（`�`）。**存回去就是把原本的位元組永久換成問號**——跟白名單要防的是同一種傷害。
+
+台灣的環境裡這不是假想：Windows 工具產出的 `.log` 有相當機率是 Big5。既有的 md / txt 也有這個問題，只是加了 `.log` 之後命中率大幅上升。
+
+**建議的處置**（需要你確認，因為它會改變既有類型的行為）：
+
+- 解碼後若含 U+FFFD → 顯示提示條、**只給 view、Save 停用**
+- 不做編碼偵測、不做轉碼——那是另一個層級的工程
+
+不做的話，就是接受「開一個 Big5 的 log、存檔、原檔毀掉」這條路徑存在。
+
+## 16. 版面：`plain` 不能產生水平捲軸
+
+既有測試會在四種寬度斷言 `scrollWidth === innerWidth`。`<pre>` 預設不換行，長行會撐破頁面把那條測試打掉。
+
+- `plain` 與 `json`：`white-space: pre-wrap; word-break: break-word`，不產生水平捲軸
+- `table`：沿用 `.read table` 的 `display:block; overflow-x:auto`，捲軸關在自己的盒子裡
+- `plain` 用自己的 class，不要沿用 `.read pre`（那是 markdown 程式碼區塊的樣式，語意不同）
+
+## 17. 已知限制（不做，但要記著）
+
+- **副檔名說謊**：把 `photo.png` 改名成 `photo.txt` 就能繞過白名單，開起來是亂碼，存檔會毀掉。使用者要主動誤操作才會發生，不另外偵測
+- **`.log` 的實際格式**沒有標準，我們只當它是純文字
+
+## 18. 仍待決
+
+### 18.1 `.tsv` 收不收
+
+上一輪沒回到這題。它是 csv 的雙胞胎，解析器只差一個分隔字元，順手收幾乎不花成本；但你列的清單是 json / csv / yaml / log。**收或不收都可以，需要你一句話。**
+
+### 18.2 §15 的編碼處置要不要做
+
+要做的話會改變既有 md / txt 的行為（現在會開，之後可能變成唯讀）。不做的話那條毀資料的路徑就留著。
