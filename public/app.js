@@ -21,6 +21,7 @@ var STR = {
   rowStow: "Swipe, or press \u2190 \u2192, to stow", rowUnstow: "Swipe, or press \u2190 \u2192, to bring back",
   tooBig: "Over 1 MB — too big to open here.", notUtf8: "Not UTF-8 — this one is read only.",
   badJson: "Can't parse this JSON — showing it as written.", csvHeader: "First row is a header",
+  tooDeep: "Too many rows to lay out — showing it as text.",
   saved: "Saved", renamed: "Renamed → %s", copied: "Copied", copiedToss: "Copied, note tossed",
   today: "Today", yday: "Yesterday", other: "中",
   noFolder: "no folder", changeFolder: "Tap to change folder",
@@ -50,6 +51,7 @@ var STR = {
   rowStow: "左右滑，或按 \u2190 \u2192，下檯", rowUnstow: "左右滑，或按 \u2190 \u2192，回檯",
   tooBig: "超過 1 MB，這裡不開。", notUtf8: "這個檔不是 UTF-8，只能看。",
   badJson: "這份 JSON 解析不了，照原樣顯示。", csvHeader: "第一列是表頭",
+  tooDeep: "筆數太多排不開，改用文字顯示。",
   saved: "已存回", renamed: "改名 → %s", copied: "已複製", copiedToss: "已複製，便條丟了",
   today: "今天", yday: "昨天", other: "EN",
   noFolder: "沒有資料夾", changeFolder: "點一下換資料夾",
@@ -164,8 +166,8 @@ var TYPES = {
  log:      {cls: "plain", view: "plain",    open: "edit"},
  json:     {cls: "data",  view: "json",     open: "view"},
  csv:      {cls: "data",  view: "table",    open: "view"},
- yaml:     {cls: "data",  view: "plain",    open: "edit"},
- yml:      {cls: "data",  view: "plain",    open: "edit"}
+ yaml:     {cls: "data",  view: "plain",    open: "edit", tint: "yaml"},
+ yml:      {cls: "data",  view: "plain",    open: "edit", tint: "yaml"}
 };
 var MAX_OPEN = 1048576;          /* 1 MB: above this we do not open at all, no renderer can save a phone from it */
 function typeOf(name) {
@@ -520,18 +522,25 @@ function render() {
   body.appendChild(d); return; }
 
  if (view === "json") {
-  var pretty;
-  try { pretty = JSON.stringify(JSON.parse(f.body), null, 2); }
+  var parsed;
+  try { parsed = JSON.parse(f.body); }
   catch (e) { body.appendChild(strip(t("badJson"))); body.appendChild(plainView(f.body)); return; }
-  body.appendChild(plainView(pretty)); return; }
+  if (countNodes(parsed) > MAX_NODES) {   /* a deep 1 MB document would build 100k+ nodes */
+   body.appendChild(strip(t("tooDeep")));
+   body.appendChild(plainView(JSON.stringify(parsed, null, 2))); return; }
+  var tree = document.createElement("div"); tree.className = "jsontree";
+  tree.appendChild(jsonNode(parsed, null)); body.appendChild(tree); return; }
 
  if (view === "table") {
   var rows = parseCsv(f.body);
   if (!rows.length) { body.appendChild(plainView(f.body)); return; }
+  var cells = 0;
+  for (var ri = 0; ri < rows.length; ri++) cells += rows[ri].length;
+  if (cells > MAX_NODES) { body.appendChild(strip(t("tooDeep"))); body.appendChild(plainView(f.body)); return; }
   body.appendChild(csvBar());
   body.appendChild(csvTable(rows)); return; }
 
- body.appendChild(plainView(f.body));
+ body.appendChild(plainView(f.body, f.type && f.type.tint));
 }
 
 /* js: renderers — everything below builds DOM with textContent. The markdown renderer is the only
@@ -539,8 +548,74 @@ function render() {
 function strip(msg) {
  var w = document.createElement("div"); w.className = "strip"; w.textContent = msg; return w;
 }
-function plainView(text) {
- var pre = document.createElement("pre"); pre.className = "plainread"; pre.textContent = text; return pre;
+function plainView(text, tint) {
+ var pre = document.createElement("pre"); pre.className = "plainread";
+ if (tint !== "yaml") { pre.textContent = text; return pre; }
+ /* Line-based tinting only. It never claims to understand YAML's structure, so it cannot be wrong
+    about anchors, multi-line scalars or flow style the way a subset parser would be. */
+ text.split("\n").forEach(function (line, i) {
+  if (i) pre.appendChild(document.createTextNode("\n"));
+  var m = /^(\s*)(#.*)$/.exec(line);
+  if (m) { pre.appendChild(document.createTextNode(m[1])); pre.appendChild(span("ycom", m[2])); return; }
+  m = /^(\s*)(-\s+)?([^:#\s][^:#]*)(:)(\s*)(.*)$/.exec(line);
+  if (m) {
+   pre.appendChild(document.createTextNode(m[1]));
+   if (m[2]) pre.appendChild(span("ymark", m[2]));
+   pre.appendChild(span("ykey", m[3]));
+   pre.appendChild(span("jpunc", m[4]));
+   pre.appendChild(document.createTextNode(m[5]));
+   if (m[6]) pre.appendChild(span("yval", m[6]));
+   return; }
+  m = /^(\s*)(-\s+)(.*)$/.exec(line);
+  if (m) {
+   pre.appendChild(document.createTextNode(m[1]));
+   pre.appendChild(span("ymark", m[2]));
+   pre.appendChild(span("yval", m[3])); return; }
+  pre.appendChild(document.createTextNode(line));
+ });
+ return pre;
+}
+function span(cls, text) {
+ var e = document.createElement("span"); e.className = cls; e.textContent = text; return e;
+}
+
+/* js: json tree — structure plus one emphasis colour. All textContent. */
+var MAX_NODES = 4000;
+function countNodes(v) {
+ if (v === null || typeof v !== "object") return 1;
+ var n = 1;
+ var keys = Array.isArray(v) ? v : Object.keys(v).map(function (k) { return v[k]; });
+ for (var i = 0; i < keys.length; i++) {
+  n += countNodes(keys[i]);
+  if (n > MAX_NODES) return n;
+ }
+ return n;
+}
+function jsonScalar(v) {
+ if (typeof v === "string") return JSON.stringify(v);
+ return String(v);
+}
+function jsonNode(v, key) {
+ if (v === null || typeof v !== "object") {
+  var row = document.createElement("div"); row.className = "jrow";
+  if (key !== null) { row.appendChild(span("jkey", key)); row.appendChild(span("jpunc", ": ")); }
+  row.appendChild(span("jval", jsonScalar(v)));
+  return row;
+ }
+ var arr = Array.isArray(v);
+ var entries = arr ? v.map(function (x, i) { return [String(i), x]; })
+                   : Object.keys(v).map(function (k) { return [k, v[k]]; });
+ var d = document.createElement("details"); d.open = true;
+ var sm = document.createElement("summary");
+ if (key !== null) { sm.appendChild(span("jkey", key)); sm.appendChild(span("jpunc", ": ")); }
+ sm.appendChild(span("jpunc", arr ? "[" : "{"));
+ sm.appendChild(span("jcount", " " + entries.length + " "));
+ sm.appendChild(span("jpunc", arr ? "]" : "}"));
+ d.appendChild(sm);
+ var kids = document.createElement("div"); kids.className = "jkids";
+ entries.forEach(function (e) { kids.appendChild(jsonNode(e[1], e[0])); });
+ d.appendChild(kids);
+ return d;
 }
 
 /* Quoted fields may hold commas, newlines and doubled quotes. Body arrives with CRLF already
@@ -584,7 +659,10 @@ function csvTable(rows) {
  var tbody = document.createElement("tbody");
  for (var r = start; r < rows.length; r++) {
   var tr = document.createElement("tr");
-  rows[r].forEach(function (c) { var td = document.createElement("td"); td.textContent = c; tr.appendChild(td); });
+  rows[r].forEach(function (c) {
+   var td = document.createElement("td"); td.textContent = c;
+   if (/^-?\d+(\.\d+)?$/.test(c.trim()) && c.trim()) td.className = "num";
+   tr.appendChild(td); });
   tbody.appendChild(tr);
  }
  tb.appendChild(tbody); wrap.appendChild(tb); return wrap;

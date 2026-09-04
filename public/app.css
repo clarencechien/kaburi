@@ -33,6 +33,7 @@
   --tint-bg:.10;
   --tint-line:.30;
   --tamago:#D7B45A;
+  --neon:#8DE05C;
   --shadow:0 1px 0 rgba(0,0,0,.4);
   --backdrop:#05080A;
   color-scheme:dark;
@@ -55,6 +56,7 @@
   --tint-bg:.24;
   --tint-line:.48;
   --tamago:#9A7420;
+  --neon:#3E7A24;   /* lamp colours cannot be text colours on a light ground; compressed like the note lamps */
   --shadow:0 1px 2px rgba(24,33,38,.08);
   --backdrop:#D9D7CE;
   color-scheme:light;
@@ -289,6 +291,33 @@ input.fname{
   font-size:.875rem;color:var(--tx-2);cursor:pointer;
 }
 .csvbar input{accent-color:var(--accent);width:17px;height:17px;flex:none}
+
+/* css: data views — one emphasis colour marks the values, keys and punctuation stay quiet.
+   Deliberately not a per-token palette: that is presentation, and it belongs to SnapDeck. */
+.jsontree{
+  padding:16px 20px 64px;font-family:var(--mono);font-size:1rem;line-height:1.75;
+  color:var(--tx);white-space:normal;word-break:break-word;
+}
+.jsontree details{margin:0}
+.jsontree summary{cursor:pointer;list-style:none;color:var(--tx-2)}
+.jsontree summary::-webkit-details-marker{display:none}
+.jsontree summary::before{content:"\25be";display:inline-block;width:1em;color:var(--tx-3)}
+.jsontree details:not([open])>summary::before{content:"\25b8"}
+.jsontree .jkids{padding-left:1.35em;border-left:1px solid var(--line-2);margin-left:.35em}
+.jsontree .jrow{padding-left:1em}
+.jsontree .jkey{color:var(--tx)}
+.jsontree .jpunc{color:var(--tx-3)}
+.jsontree .jval{color:var(--neon)}
+.jsontree .jcount{color:var(--tx-3);font-size:.875em}
+
+.plainread .ykey{color:var(--tx)}
+.plainread .yval{color:var(--neon)}
+.plainread .ycom{color:var(--tx-3)}
+.plainread .ymark{color:var(--tx-3)}
+
+.read table tbody tr:nth-child(even){background:color-mix(in srgb,var(--tx) 4%,transparent)}
+.read table th{position:sticky;top:0}
+.read td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--neon)}
 .strip{
   flex:none;background:color-mix(in srgb,var(--sake) 12%,var(--content));
   color:var(--sake);font-size:0.875rem;padding:7px 17px;

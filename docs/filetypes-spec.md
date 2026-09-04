@@ -34,7 +34,7 @@
 
 - **不做語法檢查。** 不驗證、不報行號。render 失敗就退回純文字讓使用者自己改。
 - **不做格式化按鈕。** 不提供「整理 json 縮排」這種會改動內容的動作。
-- **不做語法高亮。** 那是呈現，屬於 SnapDeck。
+- **不做多色語法高亮**（每種 token 各一個顏色）。那是呈現，屬於 SnapDeck。**只用單一強調色（螢光綠 `--neon`）標出「值」**——json 的純量、csv 的數字欄、yaml 冒號後面的部分。一個顏色是強調，一整套配色才是高亮，界線劃在這裡。
 - **不收第二級類型**（`.sql` `.sh` `.py` `.js` `.xml`）。收了下一步就是要語法高亮，定位會滑掉。
 - **不收 `.svg`。** 它是可執行的容器，inline 渲染就是 XSS；要收只能當純文字或走 `sandbox=""`，不值得。
 - **不收二進位**（pdf、圖片）。理由見 §3。
@@ -58,8 +58,8 @@ var TYPES = {
   log:      {class: "plain", view: "plain",    open: "edit"},
   json:     {class: "data",  view: "json",     open: "view"},
   csv:      {class: "data",  view: "table",    open: "view"},
-  yaml:     {class: "data",  view: "plain",    open: "edit"},
-  yml:      {class: "data",  view: "plain",    open: "edit"},
+  yaml:     {class: "data",  view: "plain",    open: "edit", tint: "yaml"},
+  yml:      {class: "data",  view: "plain",    open: "edit", tint: "yaml"},
 };
 function typeOf(name) {
   var m = /\.([a-z0-9]+)$/i.exec(name);
@@ -77,9 +77,10 @@ function typeOf(name) {
 |---|---|---|
 | `markdown` | md | 現有的 `md()`，不動 |
 | `sandbox` | html | 現有的 `srcdoc` + `sandbox=""`，不動 |
-| `plain` | txt、log、yaml | **新增。** `<pre>` 保留縮排與換行，等寬字，用 `.read` 的字級與行高。不解析任何語法 |
-| `json` | json | **新增。** `JSON.parse` → `JSON.stringify(x, null, 2)` → 丟給 `plain` 呈現 |
-| `table` | csv | **新增。** 解析成列，第一列當表頭，重用現有的 `.read table` 樣式 |
+| `plain` | txt、log | **新增。** `<pre>` 保留縮排與換行，等寬字。不解析任何語法 |
+| `plain` + tint | yaml | **新增。** 同上，另外逐行用正則切出 key／值／註解／清單符號各自上色。**不解析結構**，所以對 anchor、多行純量、flow 風格永遠不會給出錯誤的判讀；也不更動任何一個字元 |
+| `json` | json | **新增。** `JSON.parse` → 遞迴建樹，物件與陣列用 `<details>` 可折疊，純量上強調色 |
+| `table` | csv | **新增。** 解析成列，表頭可勾，數字欄靠右並上強調色，重用 `.read table` 樣式 |
 
 ### 5.1 render 失敗的行為（§2 的「不檢查」怎麼落地）
 
@@ -89,7 +90,11 @@ function typeOf(name) {
 - 提示條只說「這份 JSON 解析不了，先看原始內容」，使用者自己切 edit 去改
 - 這樣「不做語法檢查」與「view 要 render」兩個決定不衝突：render 是服務，不是驗證
 
-### 5.2 CSV 解析範圍
+### 5.2 節點上限
+
+`json` 超過 4000 個節點、`csv` 超過 4000 個儲存格時**退回文字並顯示提示條**。1 MB 的深層 json 展開會產生十萬個以上的 DOM 節點，手機扛不住；上限讓最壞情況有界。
+
+### 5.3 CSV 解析範圍
 
 最小可用：支援雙引號包住的欄位（欄位內可含逗號、換行、跳脫的引號）、CRLF、BOM。
 

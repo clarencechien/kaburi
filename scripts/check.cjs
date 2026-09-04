@@ -133,6 +133,7 @@ async function seed(page) {
     await writeText("run.log", "  indented\n# not a heading\n*not em*");
     await page.evaluate(() => window.__kaburi.scan());
     await page.waitForFunction(() => window.__kaburi.files().length === 12);
+    const beforeTypes = 12;
     const bands = await page.$$eval(".slice", (els) => els.map((e) => [
       e.querySelector("b").textContent, e.querySelector(".cut").className]));
     const bandOf = (n) => (bands.find((b) => b[0] === n) || [null, "missing"])[1];
@@ -141,8 +142,16 @@ async function seed(page) {
     check(bandOf("run.log") === "cut plain", "log takes the plain band");
 
     await page.click(".slice:has-text('cfg.json')");
-    await page.waitForSelector("#stage.open .plainread");
-    check((await page.$eval(".plainread", (e) => e.textContent)).includes('  "b": 2'), "json opens in view, pretty printed");
+    await page.waitForSelector("#stage.open .jsontree");
+    check(await page.$$eval(".jsontree .jkey", (e) => e.map((x) => x.textContent)).then((k) => k.includes("b") && k.includes("a")),
+      "json renders as a tree with its keys");
+    check(await page.$$eval(".jsontree .jval", (e) => e.map((x) => x.textContent)).then((v) => v.includes("2") && v.includes("1")),
+      "values carry the emphasis colour class");
+    check(await page.$eval(".jsontree .jval", (e) => getComputedStyle(e).color) !== await page.$eval(".jsontree .jkey", (e) => getComputedStyle(e).color),
+      "values and keys are visually distinct");
+    check(await page.$$eval(".jsontree details", (d) => d.length) === 2, "objects and arrays are collapsible");
+    await page.click(".jsontree summary");
+    check(await page.$eval(".jsontree details", (d) => !d.open), "a summary click folds it");
     await back(page);
 
     await page.click(".slice:has-text('rows.csv')");
@@ -154,6 +163,8 @@ async function seed(page) {
     await page.click(".csvbar input");
     await page.waitForFunction(() => document.querySelectorAll(".read th").length === 0);
     check((await page.$$eval(".read td", (t) => t.length)) === 6, "unchecking the header box redraws with every row as data");
+    check(await page.$$eval(".read td.num", (t) => t.map((e) => e.textContent)).then((n) => n.includes("2")),
+      "numeric cells are marked for right alignment");
     await page.click(".csvbar input");
     await back(page);
 
@@ -164,7 +175,30 @@ async function seed(page) {
     await page.waitForSelector(".plainread");
     const plain = await page.$eval(".plainread", (e) => e.textContent);
     check(plain.startsWith("  indented") && plain.includes("# not a heading"), "plain view keeps indentation and does not parse markdown");
+    check(await page.$$eval(".plainread span", (e) => e.length) === 0, "a log is not tinted, only yaml is");
     check(await page.$$eval(".plainread h1", (h) => h.length) === 0, "plain view produces no headings");
+    await back(page);
+
+    /* yaml: line tinting only, never a structural claim */
+    await page.click(".slice:has-text('conf.yaml')");
+    await page.waitForSelector("#stage.open #src");
+    await page.click("#vtog");
+    await page.waitForSelector(".plainread .ykey");
+    check(await page.$$eval(".plainread .ykey", (e) => e.map((x) => x.textContent)).then((k) => k.includes("root") && k.includes("key")),
+      "yaml keys are tinted");
+    check(await page.$$eval(".plainread .yval", (e) => e.map((x) => x.textContent)).then((v) => v.includes("value")),
+      "yaml values take the emphasis colour");
+    check((await page.$eval(".plainread", (e) => e.textContent)) === "root:\n  key: value\n  list:\n    - one",
+      "tinting does not alter a single character of the text");
+    await back(page);
+
+    /* too many nodes to lay out falls back to text */
+    await writeText("wide.json", JSON.stringify(Array.from({ length: 5000 }, (_, i) => i)));
+    await page.evaluate(() => window.__kaburi.scan());
+    await page.click(".slice:has-text('wide.json')");
+    await page.waitForSelector("#stage.open .strip");
+    check(await page.$$eval(".jsontree", (e) => e.length) === 0 && (await page.$eval(".plainread", (e) => e.textContent)).startsWith("[\n  0"),
+      "a json with too many nodes falls back to pretty text");
     await back(page);
 
     /* rename across types */
@@ -225,7 +259,7 @@ async function seed(page) {
 
     await page.evaluate(async () => {
       const d = await navigator.storage.getDirectory();
-      for (const n of ["cfg.json", "rows.csv", "conf.yaml", "run.log", "broken.json", "big5.log", "excel.csv", "huge.log"]) {
+      for (const n of ["cfg.json", "rows.csv", "conf.yaml", "run.log", "broken.json", "big5.log", "excel.csv", "huge.log", "wide.json"]) {
         try { await d.removeEntry(n); } catch (e) {}
       }
       await window.__kaburi.scan();
