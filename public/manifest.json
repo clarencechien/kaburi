@@ -47,7 +47,18 @@
           ".htm"
         ],
         "text/plain": [
-          ".txt"
+          ".txt",
+          ".log"
+        ],
+        "application/json": [
+          ".json"
+        ],
+        "text/csv": [
+          ".csv"
+        ],
+        "application/yaml": [
+          ".yaml",
+          ".yml"
         ]
       }
     }
@@ -71,7 +82,15 @@
             ".html",
             ".htm",
             "text/plain",
-            ".txt"
+            ".txt",
+            ".log",
+            "application/json",
+            ".json",
+            "text/csv",
+            ".csv",
+            "application/yaml",
+            ".yaml",
+            ".yml"
           ]
         }
       ]

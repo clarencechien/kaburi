@@ -12,7 +12,7 @@
 public/
   index.html          殼
   boot.js             同步跑在 <head>：主題 / 語言 / 佈局，以及 *.workers.dev / *.pages.dev → 正式網域
-  app.js              全部邏輯：資料夾把手、列表、stage、改名、便條
+  app.js              全部邏輯：類型表、資料夾把手、列表、stage、改名、便條
   app.css             三層深度、app / tablet 兩種佈局
   manifest.json       file_handlers 與 share_target 在這裡；display_override 開 window-controls-overlay
   sw.js               離線殼（先抓網路、斷網才用快取，只有 text/html 能當殼）＋ share target：攔 POST /share
@@ -40,8 +40,34 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 - **Cloudflare 自己的 hostname 不當前門**：`wrangler.jsonc` 關掉 `workers.dev` 與 Preview URL；`boot.js` 第一行再擋一次，任何 `*.workers.dev` / `*.pages.dev` 都轉到正式網域。
 - **`_headers`**：CSP（`script-src 'self'`，沒有 inline script）、`frame-ancestors 'none'`、HSTS、`nosniff`、`Referrer-Policy: no-referrer`、`Permissions-Policy` 關掉相機／麥克風／定位、`X-Robots-Tag: noindex`。
+- **只有 markdown renderer 用 `innerHTML`**，它自己會跳脫；`plain` / `json` / `table` 三個 renderer 一律 `textContent`。列表色帶的 class 也是塞進 `innerHTML` 的，那個值必須永遠來自寫死的 `TYPES` 表
 - **HTML 預覽** 走 `srcdoc` + `sandbox=""`。CSP 會被 iframe 繼承，所以預覽裡的 script、外部圖片、外部 CSS 全部不會跑。`allow-scripts` 與 `allow-same-origin` 永遠不能同時給。
 - 沒有後端、沒有 analytics、沒有第三方資源。偏好（主題、語言、下檯清單）在 `localStorage`，資料夾把手在 IndexedDB，便條只在記憶體。
+
+## 檔案類型
+
+一張表決定一切（`app.js` 的 `TYPES`）。加一個類型是加一行，不是改十一個地方。
+
+| 副檔名 | 色帶 | view | 開啟時 |
+|---|---|---|---|
+| `.md` `.markdown` | 鮪紅 `--maguro` | markdown | view |
+| `.html` `.htm` | 鮭橙 `--sake` | `sandbox=""` iframe | view |
+| `.json` | 玉子黃 `--tamago` | pretty print | view |
+| `.csv` | 玉子黃 | 表格（表頭可勾） | view |
+| `.yaml` `.yml` | 玉子黃 | 純文字 | edit |
+| `.txt` `.log` | 烏賊白 `--ika` | 純文字 | edit |
+
+**預設模式是推導的不是挑的**：view 的產出跟原始碼明顯不同就進 view，一樣就進 edit。所以以後加類型不用再吵。
+
+**白名單的職責是「存回去不會毀掉的檔案」**，不是「我們支援哪些格式」。`save()` 是把字串寫回去的，二進位檔被當文字讀進來再存回去就永久毀了。這讓界線有客觀依據。
+
+- **只支援 UTF-8。** 用 `TextDecoder` 的 fatal 模式判斷（不是掃 `\uFFFD`，那會誤判合法檔案裡真正的 U+FFFD）。不合的檔案顯示提示條、只給 view、**連 view/edit 膠囊一起停用**——不能讓人打了半天字才發現存不回去
+- **開檔再存檔不改動使用者沒改的位元組。** BOM 會被解碼器剝掉、CRLF 會被 `<textarea>` 正規化成 LF，兩者都記下來在寫回時還原。驗收方式是「不改內容直接存，位元組完全相同」
+- **超過 1 MB 不開。** 規則對所有類型一致，該列仍留在檯面上
+- json / csv 解析失敗就退回純文字加一條提示，不驗證、不報行號、不擋存檔。render 是服務不是驗證
+- 不收 `.svg`（可執行的容器）、二進位、以及 `.sql` `.sh` `.py` 這類——收了下一步就是要語法高亮，定位會滑掉
+
+規格與被否決的選項見 [`docs/filetypes-spec.md`](docs/filetypes-spec.md)。
 
 ## Share target（phase 2）
 

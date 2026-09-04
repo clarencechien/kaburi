@@ -19,6 +19,8 @@ var STR = {
   showAll: "Everything in this folder", scopeAll: "all %n", scopeRecent: "recent",
   stow: "stow", unstow: "back", stowed: "Stowed", unstowed: "Back on the counter",
   rowStow: "Swipe, or press \u2190 \u2192, to stow", rowUnstow: "Swipe, or press \u2190 \u2192, to bring back",
+  tooBig: "Over 1 MB — too big to open here.", notUtf8: "Not UTF-8 — this one is read only.",
+  badJson: "Can't parse this JSON — showing it as written.", csvHeader: "First row is a header",
   saved: "Saved", renamed: "Renamed → %s", copied: "Copied", copiedToss: "Copied, note tossed",
   today: "Today", yday: "Yesterday", other: "中",
   noFolder: "no folder", changeFolder: "Tap to change folder",
@@ -46,6 +48,8 @@ var STR = {
   showAll: "這個資料夾裡的全部", scopeAll: "全部 %n", scopeRecent: "最近",
   stow: "下檯", unstow: "回檯", stowed: "已下檯", unstowed: "回到檯面",
   rowStow: "左右滑，或按 \u2190 \u2192，下檯", rowUnstow: "左右滑，或按 \u2190 \u2192，回檯",
+  tooBig: "超過 1 MB，這裡不開。", notUtf8: "這個檔不是 UTF-8，只能看。",
+  badJson: "這份 JSON 解析不了，照原樣顯示。", csvHeader: "第一列是表頭",
   saved: "已存回", renamed: "改名 → %s", copied: "已複製", copiedToss: "已複製，便條丟了",
   today: "今天", yday: "昨天", other: "EN",
   noFolder: "沒有資料夾", changeFolder: "點一下換資料夾",
@@ -67,6 +71,7 @@ var PREF = {
  get: function (k, d) { try { var v = localStorage.getItem("kaburi." + k); return v === null ? d : v; } catch (e) { return d; } },
  set: function (k, v) { try { localStorage.setItem("kaburi." + k, v); } catch (e) {} }
 };
+var csvHeader = PREF.get("csvHeader", "1") !== "0";
 var lang = PREF.get("lang", "en");
 if (lang !== "zh") lang = "en";
 function t(k, v) {
@@ -146,8 +151,41 @@ function idbSet(k, v) {
 /* js: folder */
 var dirHandle = null, FILES = [], RECENT = 5, expanded = false;
 var folderState = HAS_FS ? "restoring" : "unsupported";   /* restoring | none | needauth | ready | unsupported */
-var EXT = {md: "md", markdown: "md", txt: "txt", html: "html", htm: "html"};
-function kindOf(name) { var m = /\.([a-z0-9]+)$/i.exec(name); return m ? (EXT[m[1].toLowerCase()] || null) : null; }
+/* js: types — one table. `cls` drives the colour band, `view` picks the renderer, and `open` follows
+   a rule rather than taste: a view that differs from the source opens in view, one that does not
+   opens in edit. The allowlist's job is not "formats we support", it is "files we can write back
+   without destroying them" — which is why binaries are absent and why encoding matters (see save). */
+var TYPES = {
+ md:       {cls: "doc",   view: "markdown", open: "view"},
+ markdown: {cls: "doc",   view: "markdown", open: "view"},
+ html:     {cls: "page",  view: "sandbox",  open: "view"},
+ htm:      {cls: "page",  view: "sandbox",  open: "view"},
+ txt:      {cls: "plain", view: "plain",    open: "edit"},
+ log:      {cls: "plain", view: "plain",    open: "edit"},
+ json:     {cls: "data",  view: "json",     open: "view"},
+ csv:      {cls: "data",  view: "table",    open: "view"},
+ yaml:     {cls: "data",  view: "plain",    open: "edit"},
+ yml:      {cls: "data",  view: "plain",    open: "edit"}
+};
+var MAX_OPEN = 1048576;          /* 1 MB: above this we do not open at all, no renderer can save a phone from it */
+function typeOf(name) {
+ var m = /\.([a-z0-9]+)$/i.exec(name);
+ return m ? (TYPES[m[1].toLowerCase()] || null) : null;
+}
+
+/* Bytes the user did not touch must survive a round trip. The decoder strips a BOM and a textarea
+   normalises CRLF to LF, so both are remembered here and restored on write. */
+function decodeFile(buf) {
+ var b = new Uint8Array(buf);
+ var bom = b.length >= 3 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF;
+ var body, readonly = false;
+ try { body = new TextDecoder("utf-8", {fatal: true}).decode(buf); }
+ catch (e) { body = new TextDecoder("utf-8").decode(buf); readonly = true; }
+ if (body.charCodeAt(0) === 0xFEFF) body = body.slice(1);
+ var crlf = /\r\n/.test(body);
+ if (crlf) body = body.replace(/\r\n/g, "\n");
+ return {body: body, bom: bom, eol: crlf ? "\r\n" : "\n", readonly: readonly};
+}
 function fmtSize(n) {
  if (n < 1024) return n + " B";
  if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
@@ -162,14 +200,14 @@ async function scan() {
  try {
   for await (var entry of dirHandle.values()) {
    if (entry.kind !== "file") continue;
-   var k = kindOf(entry.name); if (!k) continue;
+   var ty = typeOf(entry.name); if (!ty) continue;
    var file;
    try { file = await entry.getFile(); } catch (e) { continue; }
    if (cur && !cur.loose && cur.name === entry.name) {
-    cur.handle = entry; cur.kind = k; cur.ts = file.lastModified; cur.size = file.size;
+    cur.handle = entry; cur.type = ty; cur.ts = file.lastModified; cur.size = file.size;
     out.push(cur);
    } else {
-    out.push({name: entry.name, kind: k, ts: file.lastModified, size: file.size, handle: entry});
+    out.push({name: entry.name, type: ty, ts: file.lastModified, size: file.size, handle: entry});
    }
   }
  } catch (e) {
@@ -307,7 +345,8 @@ function paintStatus() {
 
 function rowFor(f, withDate) {
  var b = document.createElement("button"); b.className = "slice";
- b.innerHTML = '<span class="cut ' + f.kind + '"></span><span class="t"><b></b><small></small></span>' +
+ /* f.type.cls is interpolated into innerHTML, so it must only ever come from the TYPES table */
+ b.innerHTML = '<span class="cut ' + (f.type ? f.type.cls : "other") + '"></span><span class="t"><b></b><small></small></span>' +
   '<svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M9 6l6 6-6 6"/></svg>';
  b.querySelector("b").textContent = f.name;
  b.querySelector("small").textContent =
@@ -427,10 +466,14 @@ function paintList() {
 var cur = null, mode = "view", dirty = false;
 async function openFile(f) {
  if (!(cur === f && dirty)) {
-  try { f.body = await (await f.handle.getFile()).text(); }
-  catch (e) { flash(t("failed", errMsg(e))); return; }
+  if (f.size > MAX_OPEN) { flash(t("tooBig")); return; }   /* before the read, not after */
+  try {
+   var d = decodeFile(await (await f.handle.getFile()).arrayBuffer());
+   f.body = d.body; f.bom = d.bom; f.eol = d.eol; f.readonly = d.readonly;
+  } catch (e) { flash(t("failed", errMsg(e))); return; }
  }
- cur = f; mode = f.kind === "txt" ? "edit" : "view"; dirty = false;
+ cur = f; dirty = false;
+ mode = f.readonly ? "view" : (f.type ? f.type.open : "edit");
  showTab("files");
  $("stage").classList.add("open"); render();
  if (f.loose) flash(t("loose"));
@@ -449,8 +492,9 @@ function render() {
  if (fn.tagName === "BUTTON") { fn.textContent = f.name; fn.title = f.loose ? t("loose") : t("rename"); }
  $("vtog").dataset.mode = mode;
  $("vlbl").textContent = t(mode);
+ $("vtog").disabled = !!f.readonly;   /* not just hiding Save: nobody should type before finding out */
  $("save").textContent = t("save");
- $("save").hidden = !(mode === "edit" && dirty);
+ $("save").hidden = !(mode === "edit" && dirty) || !!f.readonly;
  var body = $("sbody"); body.textContent = "";
  $("totop").hidden = mode !== "edit";
 
@@ -459,23 +503,98 @@ function render() {
   ta.addEventListener("input", function () { f.body = ta.value; if (!dirty) { dirty = true; $("save").hidden = false; } });
   body.appendChild(ta); return; }
 
- if (f.kind === "html") {
-  var w = document.createElement("div"); w.className = "strip"; w.textContent = t("strip");
-  body.appendChild(w);
+ if (f.readonly) body.appendChild(strip(t("notUtf8")));
+
+ var view = f.type ? f.type.view : "plain";
+
+ if (view === "sandbox") {
+  body.appendChild(strip(t("strip")));
   var fr = document.createElement("iframe"); fr.className = "preview";
   fr.setAttribute("sandbox", "");            /* never add allow-same-origin next to allow-scripts */
   fr.setAttribute("referrerpolicy", "no-referrer");
   fr.srcdoc = '<meta charset="utf-8"><style>body{font:18px/1.8 system-ui;padding:22px;color:#182126;background:#fff}img{max-width:100%}@media(max-width:600px){body{font-size:20.7px}}</style>' + f.body;
   body.appendChild(fr); return; }
 
- var d = document.createElement("div"); d.className = "read"; d.innerHTML = md(f.body); body.appendChild(d);
+ if (view === "markdown") {
+  var d = document.createElement("div"); d.className = "read"; d.innerHTML = md(f.body);
+  body.appendChild(d); return; }
+
+ if (view === "json") {
+  var pretty;
+  try { pretty = JSON.stringify(JSON.parse(f.body), null, 2); }
+  catch (e) { body.appendChild(strip(t("badJson"))); body.appendChild(plainView(f.body)); return; }
+  body.appendChild(plainView(pretty)); return; }
+
+ if (view === "table") {
+  var rows = parseCsv(f.body);
+  if (!rows.length) { body.appendChild(plainView(f.body)); return; }
+  body.appendChild(csvBar());
+  body.appendChild(csvTable(rows)); return; }
+
+ body.appendChild(plainView(f.body));
+}
+
+/* js: renderers — everything below builds DOM with textContent. The markdown renderer is the only
+   path in this app allowed to touch innerHTML, and it escapes its input; do not add a second one. */
+function strip(msg) {
+ var w = document.createElement("div"); w.className = "strip"; w.textContent = msg; return w;
+}
+function plainView(text) {
+ var pre = document.createElement("pre"); pre.className = "plainread"; pre.textContent = text; return pre;
+}
+
+/* Quoted fields may hold commas, newlines and doubled quotes. Body arrives with CRLF already
+   normalised, so only "\n" needs handling here. */
+function parseCsv(text) {
+ var rows = [], row = [], cell = "", quoted = false, i = 0;
+ while (i < text.length) {
+  var c = text.charAt(i);
+  if (quoted) {
+   if (c === '"') {
+    if (text.charAt(i + 1) === '"') { cell += '"'; i += 2; continue; }
+    quoted = false; i++; continue; }
+   cell += c; i++; continue; }
+  if (c === '"') { quoted = true; i++; continue; }
+  if (c === ",") { row.push(cell); cell = ""; i++; continue; }
+  if (c === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; i++; continue; }
+  cell += c; i++;
+ }
+ if (cell.length || row.length) { row.push(cell); rows.push(row); }
+ return rows;
+}
+function csvBar() {
+ var lab = document.createElement("label"); lab.className = "csvbar";
+ var box = document.createElement("input"); box.type = "checkbox"; box.checked = csvHeader;
+ var txt = document.createElement("span"); txt.textContent = t("csvHeader");
+ box.addEventListener("change", function () {
+  csvHeader = box.checked; PREF.set("csvHeader", csvHeader ? "1" : "0");
+  render();                                  /* redraw from memory, never re-read the file */
+ });
+ lab.appendChild(box); lab.appendChild(txt); return lab;
+}
+function csvTable(rows) {
+ var wrap = document.createElement("div"); wrap.className = "read";
+ var tb = document.createElement("table");
+ var start = 0;
+ if (csvHeader) {
+  var thead = document.createElement("thead"), hr = document.createElement("tr");
+  rows[0].forEach(function (c) { var th = document.createElement("th"); th.textContent = c; hr.appendChild(th); });
+  thead.appendChild(hr); tb.appendChild(thead); start = 1;
+ }
+ var tbody = document.createElement("tbody");
+ for (var r = start; r < rows.length; r++) {
+  var tr = document.createElement("tr");
+  rows[r].forEach(function (c) { var td = document.createElement("td"); td.textContent = c; tr.appendChild(td); });
+  tbody.appendChild(tr);
+ }
+ tb.appendChild(tbody); wrap.appendChild(tb); return wrap;
 }
 
 async function exists(name) {
  if (!dirHandle) return false;
  return dirHandle.getFileHandle(name).then(function () { return true; }, function () { return false; });
 }
-function validName(v) { return !/[\/\\]/.test(v) && v[0] !== "." && !!kindOf(v); }
+function validName(v) { return !/[\/\\]/.test(v) && v[0] !== "." && !!typeOf(v); }
 
 async function newFile() {
  if (folderState !== "ready") return;
@@ -485,7 +604,7 @@ async function newFile() {
  var h, file;
  try { h = await dirHandle.getFileHandle(name, {create: true}); file = await h.getFile(); }
  catch (e) { flash(t("failed", errMsg(e))); return; }
- var f = {name: name, kind: "md", ts: file.lastModified, size: 0, handle: h, body: "", fresh: true};
+ var f = {name: name, type: TYPES.md, ts: file.lastModified, size: 0, handle: h, body: "", eol: "\n", fresh: true};
  FILES.unshift(f); expanded = false; paintList();
  cur = f; mode = "edit"; dirty = false;
  $("stage").classList.add("open"); render();
@@ -494,13 +613,16 @@ async function newFile() {
 }
 
 async function save() {
- var f = cur; if (!f || !dirty) return;
+ var f = cur; if (!f || !dirty || f.readonly) return;
  try {
   if (f.loose && f.handle.requestPermission) {
    var p = await f.handle.requestPermission({mode: "readwrite"});
    if (p !== "granted") { flash(t("denied")); return; } }
+  var out = f.body;
+  if (f.eol === "\r\n") out = out.replace(/\n/g, "\r\n");   /* put back what we normalised on read */
+  if (f.bom) out = "\uFEFF" + out;
   var w = await f.handle.createWritable();
-  await w.write(f.body); await w.close();
+  await w.write(out); await w.close();
   var file = await f.handle.getFile();
   f.ts = file.lastModified; f.size = file.size; f.fresh = false;
   dirty = false; $("save").hidden = true;
@@ -531,7 +653,7 @@ async function renameFile(f, newName) {
    f.handle = nh; via = "copy+delete";
   }
   var file = await f.handle.getFile();
-  f.name = newName; f.kind = kindOf(newName); f.ts = file.lastModified; f.size = file.size;
+  f.name = newName; f.type = typeOf(newName); f.ts = file.lastModified; f.size = file.size;
   delete archived[old]; saveStowed();
   FILES = FILES.filter(function (x) { return x === f || x.name !== newName; });
   if (LOCAL) console.info("renamed via " + via);
@@ -671,7 +793,7 @@ function safeName(raw) {
   .replace(/[\u0000-\u001f<>:"|?*]/g, "").trim().slice(0, 120);
  if (!base || base === "." || base === "..") return null;
  if (!/\.[a-z0-9]+$/i.test(base)) return base + ".md";
- return kindOf(base) ? base : base + ".md";
+ return typeOf(base) ? base : base + ".md";
 }
 function stampName() {
  var d = new Date(), z = function (n) { return (n < 10 ? "0" : "") + n; };
@@ -800,7 +922,7 @@ function bindLaunchQueue() {
   if (match) return openFile(match);
   var file;
   try { file = await h.getFile(); } catch (e) { flash(t("failed", errMsg(e))); return; }
-  openFile({name: h.name, kind: kindOf(h.name) || "txt", ts: file.lastModified, size: file.size, handle: h, loose: true});
+  openFile({name: h.name, type: typeOf(h.name) || TYPES.txt, ts: file.lastModified, size: file.size, handle: h, loose: true});
  });
 }
 
@@ -847,7 +969,7 @@ function boot() {
  ready.then(function () { paintStatus(); paintList(); bindLaunchQueue(); return handleShare(); });
 
  /* test hook, localhost only: drive the app with an OPFS directory handle */
- if (LOCAL) window.__kaburi = {useDir: useDir, scan: scan, intake: function () { return intake; }, files: function () { return FILES; }, state: function () { return folderState; },
+ if (LOCAL) window.__kaburi = {useDir: useDir, scan: scan, intake: function () { return intake; }, markDirty: function () { dirty = true; }, files: function () { return FILES; }, state: function () { return folderState; },
   cur: function () { return cur; }, save: save, rename: renameFile, notes: function () { return notes; }};
 }
 boot();
