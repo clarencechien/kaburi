@@ -28,6 +28,7 @@ var STR = {
   pickFolder: "Choose a folder",
   pickHint: "Kaburi works on one folder. Pick where your md / html / txt files live.",
   reauth: "Re-authorize", reauthHint: "Folder access needs one tap after reopening.",
+  repick: "Choose the folder again", repickHint: "Re-authorizing did not go through on this device. Pick the same folder again.",
   unsupported: "This browser can't open local folders. Use Chrome 132+ or Edge on desktop, ChromeOS or Android.",
   overwrite: "\u201C%s\u201D already exists. Overwrite it?",
   badName: "Keep it .md, .html or .txt — no slashes.",
@@ -58,6 +59,7 @@ var STR = {
   pickFolder: "選一個資料夾",
   pickHint: "Kaburi 只處理一個資料夾。選你放 md / html / txt 的地方。",
   reauth: "重新授權", reauthHint: "重開之後要按一下才能再碰資料夾。",
+  repick: "重新選資料夾", repickHint: "這台裝置上重新授權沒過，直接再選一次同一個資料夾。",
   unsupported: "這個瀏覽器不能開本機資料夾。請用桌機、ChromeOS 或 Android 上的 Chrome 132+ 或 Edge。",
   overwrite: "「%s」已經存在，覆蓋掉它？",
   badName: "只能是 .md、.html、.txt，不能有斜線。",
@@ -153,6 +155,7 @@ function idbSet(k, v) {
 /* js: folder */
 var dirHandle = null, FILES = [], RECENT = 5, expanded = false;
 var folderState = HAS_FS ? "restoring" : "unsupported";   /* restoring | none | needauth | ready | unsupported */
+var reauthFailed = false;   /* requestPermission came back without a grant; stop offering it */
 /* js: types — one table. `cls` drives the colour band, `view` picks the renderer, and `open` follows
    a rule rather than taste: a view that differs from the source opens in view, one that does not
    opens in edit. The allowlist's job is not "formats we support", it is "files we can write back
@@ -221,7 +224,7 @@ async function scan() {
 }
 
 async function useDir(h) {
- dirHandle = h; folderState = "ready"; expanded = false; FILES = [];
+ dirHandle = h; folderState = "ready"; reauthFailed = false; expanded = false; FILES = [];
  await idbSet("dir", h);
  await scan();
  if (intake) await landFiles();
@@ -234,12 +237,22 @@ async function pickFolder() {
  await useDir(h);
 }
 async function reauth() {
- if (!dirHandle) return pickFolder();
- try {
-  var p = await dirHandle.requestPermission({mode: "readwrite"});
-  if (p === "granted") { folderState = "ready"; await scan(); if (intake) await landFiles(); }
-  else flash(t("denied"));
- } catch (e) { flash(t("failed", errMsg(e))); }
+ if (!dirHandle || reauthFailed) return pickFolder();
+ var p = "denied";
+ try { p = await dirHandle.requestPermission({mode: "readwrite"}); }
+ catch (e) { flash(t("failed", errMsg(e))); }
+ if (p === "granted") {
+  reauthFailed = false; folderState = "ready";
+  await scan(); if (intake) await landFiles();
+  return;
+ }
+ /* Android cannot always re-grant a handle it restored from IndexedDB: requestPermission comes back
+    without a grant however many times it is tapped, which turns the share intake strip into an
+    endless authorize loop. So a refusal is remembered — the next tap opens the folder picker, which
+    always works, because that is how the folder was chosen in the first place. */
+ reauthFailed = true;
+ flash(t("denied"));
+ paintStatus(); paintList(); paintIntake();
 }
 async function restoreDir() {
  var h = await idbGet("dir");
@@ -425,8 +438,8 @@ function paintList() {
   if (folderState === "needauth") {
    var e = emptyPane("<b></b><span></span><br><button class=\"btn\" id=\"reauth\"></button>");
    e.querySelector("b").textContent = dirHandle ? dirHandle.name : "";
-   e.querySelector("span").textContent = t("reauthHint");
-   e.querySelector("button").textContent = t("reauth");
+   e.querySelector("span").textContent = t(reauthFailed ? "repickHint" : "reauthHint");
+   e.querySelector("button").textContent = t(reauthFailed ? "repick" : "reauth");
    e.addEventListener("click", reauth);
    e.classList.add("tap");
    h.appendChild(e); return;
@@ -936,7 +949,13 @@ async function readShareMeta() {
   return r ? await r.json() : null;
  } catch (e) { return null; }
 }
-async function clearShare() { try { await caches.delete(SHARE_CACHE); } catch (e) {} }
+/* Washing the url is part of consuming the payload, not of reading it: while files sit on the intake
+   strip waiting for a tap the token stays put, so a reload — or Android recreating the whole activity
+   behind a permission dialog or the folder picker — finds the share still pending instead of dropping it. */
+async function clearShare() {
+ try { await caches.delete(SHARE_CACHE); } catch (e) {}
+ if (location.search) { try { history.replaceState(null, "", "/"); } catch (e) {} }
+}
 /* A real share opens the installed app window (standalone / overlay / fullscreen). A cross-site form POST
    to /share lands in a plain browser tab instead, so in a tab the files always wait for a tap. */
 function launchedAsApp() {
@@ -961,7 +980,8 @@ function paintIntake() {
  head.textContent = intake.count === 1 ? t("intakeOne") : t("intakeN", intake.count);
  names.appendChild(head);
  intake.names.slice(0, 4).forEach(function (n) { var b = document.createElement("b"); b.textContent = n; names.appendChild(b); });
- $("intakeBtn").textContent = dirHandle ? t("intakeTo", dirHandle.name || "/") : t("intakePick");
+ $("intakeBtn").textContent = !dirHandle ? t("intakePick")
+  : (reauthFailed ? t("repick") : t("intakeTo", dirHandle.name || "/"));
 }
 
 async function intakeShare(meta) {
@@ -1022,12 +1042,11 @@ function intakeAction() {
 async function handleShare() {
  var token = new URLSearchParams(location.search).get("share-target");
  var meta = await readShareMeta();
- if (token) history.replaceState(null, "", "/");
  /* The token is minted by the worker per payload and travels in the redirect it answers with. A payload
     whose token does not match this launch was parked by someone else's POST, or abandoned; either way it
     is dropped here rather than left armed for a later launch to pick up. */
  if (token && meta && meta.nonce && meta.nonce === token) { await intakeShare(meta); return; }
- if (meta) await clearShare();
+ if (meta || token) await clearShare();   /* a token with nothing behind it still gets washed off the url */
 }
 
 /* js: file handler — "Open with" from the OS files app */
@@ -1099,7 +1118,7 @@ function boot() {
  /* test hook, localhost only: drive the app with an OPFS directory handle */
  if (LOCAL) window.__kaburi = {useDir: useDir, scan: scan, intake: function () { return intake; }, markDirty: function () { dirty = true; }, files: function () { return FILES; }, state: function () { return folderState; },
   cur: function () { return cur; }, save: save, rename: renameFile, notes: function () { return notes; },
-  keepNotes: keepNotes};
+  keepNotes: keepNotes, setState: function (v) { folderState = v; paintStatus(); paintList(); paintIntake(); }};
 }
 boot();
 })();

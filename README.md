@@ -83,6 +83,19 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 寫入時機是 `pagehide` 與 `visibilitychange` 轉 hidden，加上新增與丟棄時。空白的便條不存。
 
+### 但這在 Android 上沒有用（已實機確認）
+
+**Android 每次分享啟動都給一個新的瀏覽環境**，`sessionStorage` 是分頁層級的，所以開機時就是空的。實測方式：先用 `+` 開一張便條自己打字，再分享一段文字進來——**自己打的那張也不見了**，證明不是「前一張被蓋掉」，是整個環境重來。
+
+| 平台 | 連續分享 |
+|---|---|
+| 桌機 | 會疊（同一個瀏覽環境，`sessionStorage` 有效） |
+| Android | **一次一張**，每次都是全新的 app |
+
+要讓 Android 也疊，只有兩條路，都有代價：讓分享不導覽（SW 對 POST 回 `204`，但若 Android 是開新分頁執行 POST，會留下一個空白分頁），或把便條寫進跨環境的儲存（`localStorage` / IndexedDB，**直接違反 §4.7**，需要加時間盒並改寫「不落地」的承諾）。**兩者都還沒做。**
+
+> 順帶一提：如果來源是剪貼簿，**打開 Kaburi 之後連續貼上本來就會疊**——那條路沒有導覽，便條全程只在記憶體裡。會壞掉的只有「從分享選單送進來」這一條。
+
 > 寫測試時踩到一個坑：光清 `sessionStorage` 沒有用，因為接著的 `reload()` 會先觸發 `pagehide`，把還活著的陣列原封不動寫回去。要連記憶體裡的陣列一起清。
 
 ## 從 OS「開啟方式」進來的檔案
@@ -94,6 +107,20 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 不先複製的理由：open with 給的是真的 handle，存回去就是存回你點的那個原檔。先複製再開的話你改的是副本，**原檔會默默變成舊的**，那違反「存回原檔」。
 
+### 哪些平台真的有「開啟方式」
+
+`file_handlers` 是**桌面專用**的。manifest 裡十個副檔名（`.md .markdown .html .htm .txt .log .json .csv .yaml .yml`）全都註冊了，但註冊只在支援的平台上生效：
+
+| 平台 | 從檔案管理員「開啟方式」 |
+| --- | --- |
+| Windows / ChromeOS / Linux 桌機（安裝成 PWA） | 有 |
+| Android | **完全沒有**——Chrome 的 WebAPK 不實作 File Handling API，任何副檔名都不會出現 |
+| iOS / Safari / Firefox | 沒有（沒實作） |
+
+所以 Android 上看不到 html / md，**不是 manifest 註冊寫錯**，是那個平台沒有這個機制。Android 的替代路徑是**分享選單**（share target 有實作），代價是分享給的是副本不是 handle，會落進工作資料夾。
+
+桌機上如果該有卻沒有：註冊是**安裝當下**寫進 OS 的，manifest 後來加的副檔名要**重裝一次** PWA 才會重新註冊；另外 Chrome 第一次用 app 開檔案會問一次，當時按了不允許就不會關聯。
+
 > 這與 share target 不一致——分享是複製進工作資料夾的，因為分享給的是 `File` 不是 handle，沒有原位置可以存回。兩個入口各有理由，但不一致本身記在這裡。
 
 ## Share target（phase 2）
@@ -104,6 +131,9 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - 純文字／網址 → 開一張便條，切到便條分頁，不落地。
 - 流程：SW 攔 `POST /share`（只認導覽式請求），產生一組不可猜的 token 一併寫進 payload，303 到 `/?share-target=<token>`；前景 `handleShare()` 只有在網址帶的 token 與 payload 裡的相符時才取用，分流、清 cache、把網址洗回 `/`。任何其他啟動看到殘留就直接丟掉，不會留著等人來取。
 - 權限：在安裝的 app 視窗裡（standalone）且資料夾權限還在就直接落，零點擊；權限不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
+- **Android 分享檔案每次都要點一次授權，是預期行為。**Android 沒有持久的檔案系統權限，而且每次分享啟動都是全新的瀏覽環境，從 IndexedDB 撈回來的資料夾把手一定是 `prompt`。分享進來的檔案本身不需要權限，但要把它寫進工作資料夾就需要，所以橫幅一定會出現。桌機（已安裝、Chrome 122+）才有免點的持久權限。
+- **授權沒過不會再問第二次（無限 auth 迴圈）**。Android 上 `requestPermission()` 有時候怎麼點都回不了 `granted`——存在 IndexedDB 的把手背後是一個 SAF 的 `content://`，進程死過之後沒有 API 能不開選擇器就把它要回來。舊版本每點一次就重試一次同樣的呼叫，分享橫幅就永遠停在那裡。現在被拒絕一次就記住，**按鈕改成「重新選資料夾」**，下一點直接開資料夾選擇器（`startIn` 就是原來那個資料夾）。選完 `useDir()` 會把等在橫幅上的檔案接著落下去。最多兩下，不會有第三次。
+- **等待中的分享擐得過 reload。**洗網址是「消耗 payload」的一部分，不是「讀到 payload」的一部分：檔案還在橫幅上等點的時候，`?share-target=<token>` 留在網址列。Android 在權限對話框或資料夾選擇器背後把整個 activity 重建掉的時候，重新載入還找得到這筆分享，而不是默默丟掉。落完、或者 payload 被丟掉，網址才洗回 `/`。
 - **兩道防線擋跨站 POST**：任何網站都能用表單 POST 到 `/share`，SW 分不出來源。
   1. **token 綁定**：payload 只能被產生它的那次啟動取用。攻擊者用隱藏 iframe 偷偷寄放（`frame-ancestors 'none'` 會擋掉畫面，但 cache 已經寫進去了），也沒辦法之後誘導使用者開 `/?share-target=1` 把它取出來。
   2. **display-mode 門檻**：真正的分享會開在 app 視窗，跨站 POST 只會落在一般分頁，分頁裡一律要點一下才寫。
