@@ -789,10 +789,35 @@ function startRename() {
 /* js: notes — memory only */
 var notes = [], nid = 1;
 var LAMPS = ["#4FD5D2", "#E8A83D", "#E2705C", "#9E86D8", "#7FC96B"];
+
+/* A share arrives as a top-level POST, so the document is replaced and an in-memory array is gone —
+   which made every shared note look like it had overwritten the last. sessionStorage carries them
+   across that navigation and nothing further: it is per tab, never reaches disk, IndexedDB,
+   localStorage or another device, and dies with the tab. That is what §4.7 asks for in its own
+   words, "關掉就沒了"; the old behaviour was stricter than the rule, not equal to it. */
+var NOTE_KEY = "kaburi.notes";
+function keepNotes() {
+ try {
+  var live = notes.filter(function (n) { return n.text.trim(); });
+  if (!live.length) { sessionStorage.removeItem(NOTE_KEY); return; }
+  sessionStorage.setItem(NOTE_KEY, JSON.stringify({nid: nid, notes: live}));
+ } catch (e) { /* private window, policy, or quota: notes are disposable by design */ }
+}
+function restoreNotes() {
+ try {
+  var raw = sessionStorage.getItem(NOTE_KEY);
+  if (!raw) return;
+  var saved = JSON.parse(raw);
+  if (!saved || !Array.isArray(saved.notes)) return;
+  notes = saved.notes.filter(function (n) { return n && typeof n.text === "string"; });
+  if (saved.nid > 0) nid = saved.nid;
+ } catch (e) { notes = []; }
+}
 function mix(h, p) { return "color-mix(in srgb," + h + " " + p + ",transparent)"; }
 
 function addNote(x) {
  notes.unshift({id: nid, lamp: LAMPS[(nid - 1) % LAMPS.length], text: x || ""}); nid++;
+ keepNotes();
  paintNotes();
  var f = $("noteList").querySelector("textarea"); if (f) f.focus();
 }
@@ -858,7 +883,10 @@ function toss(el, n, dir) {
  el.classList.add("gone");
  el.style.transform = "translateX(" + ((dir || -1) * 115) + "%)";
  vibrate(12);
- setTimeout(function () { notes = notes.filter(function (x) { return x.id !== n.id; }); paintNotes(); }, 185);
+ setTimeout(function () {
+  notes = notes.filter(function (x) { return x.id !== n.id; });
+  keepNotes(); paintNotes();
+ }, 185);
 }
 
 function cp(x) { if (navigator.clipboard) navigator.clipboard.writeText(x).catch(function () {}); }
@@ -1027,6 +1055,7 @@ function boot() {
  applyLayout();
  setTheme(PREF.get("theme", "dark") === "light" ? "light" : "dark", false);
  bindRename();
+ restoreNotes();          /* before applyLang, which paints them */
  applyLang();
 
  $("langBtn").addEventListener("click", function () { lang = lang === "en" ? "zh" : "en"; PREF.set("lang", lang); applyLang(); });
@@ -1054,7 +1083,10 @@ function boot() {
 
  document.addEventListener("keydown", function (e) {
   if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); if (!$("save").hidden) save(); } });
- document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") rescanSoon(); });
+ document.addEventListener("visibilitychange", function () {
+  if (document.visibilityState === "visible") rescanSoon(); else keepNotes();
+ });
+ window.addEventListener("pagehide", keepNotes);
  window.addEventListener("focus", rescanSoon);
 
  if ("serviceWorker" in navigator && (location.protocol === "https:" || LOCAL) && !window.__noSW) {
@@ -1066,7 +1098,8 @@ function boot() {
 
  /* test hook, localhost only: drive the app with an OPFS directory handle */
  if (LOCAL) window.__kaburi = {useDir: useDir, scan: scan, intake: function () { return intake; }, markDirty: function () { dirty = true; }, files: function () { return FILES; }, state: function () { return folderState; },
-  cur: function () { return cur; }, save: save, rename: renameFile, notes: function () { return notes; }};
+  cur: function () { return cur; }, save: save, rename: renameFile, notes: function () { return notes; },
+  keepNotes: keepNotes};
 }
 boot();
 })();

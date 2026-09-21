@@ -33,6 +33,15 @@ const server = http.createServer((req, res) => {
 });
 
 const fails = [];
+/* Clearing sessionStorage alone is not enough: a reload fires pagehide first, which writes the
+   still-live notes straight back. The array has to go too. */
+async function dropNotes(page) {
+  await page.evaluate(() => {
+    window.__kaburi.notes().length = 0;
+    window.__kaburi.keepNotes();
+    try { sessionStorage.clear(); } catch (e) {}
+  });
+}
 async function back(page) { await page.click("#back"); await page.waitForFunction(() => !document.getElementById("stage").classList.contains("open")); await page.waitForTimeout(320); }
 function check(ok, msg) { console.log((ok ? "  ok   " : "  FAIL ") + msg); if (!ok) fails.push(msg); }
 
@@ -430,6 +439,14 @@ async function seed(page) {
     await page.waitForFunction(() => window.__kaburi && location.search === "");
     check(await page.evaluate(() => window.__kaburi.notes().length === 1 && window.__kaburi.notes()[0].text.includes("example.com")), "shared text becomes a note");
     check(await page.$eval("#tab-notes", (e) => e.getAttribute("aria-selected")) === "true", "text share opens the notes tab");
+    tok = await park([], "second clipboard paste");
+    await page.goto(base + "/?share-target=" + tok);
+    await page.waitForFunction(() => window.__kaburi && location.search === "");
+    const twice = await page.evaluate(() => window.__kaburi.notes().map((n) => n.text));
+    check(twice.length === 2 && /second clipboard/.test(twice[0]) && /example\.com/.test(twice[1]),
+      "a second share adds a note instead of replacing the first " + JSON.stringify(twice));
+    check((await page.$$(".note")).length === 2, "and both are on the board");
+    await dropNotes(page);
     /* no folder yet: intake bar waits, cache kept */
     await page.evaluate(async () => { indexedDB.deleteDatabase("kaburi"); });
     tok = await park([["later.md", "later"]], "");
@@ -443,11 +460,24 @@ async function seed(page) {
     await page.click("#tab-files");
 
     /* notes: memory only */
+    await dropNotes(page);
+    await page.reload(); await page.waitForFunction(() => window.__kaburi);
     await page.click("#tab-notes"); await page.click("#add");
     await page.fill(".note textarea", "sk-ant-xxx");
+    await page.evaluate(() => window.__kaburi.keepNotes());
     check(!(await page.$eval("#dot", (e) => e.hidden)), "notes dot lit");
     await page.reload(); await page.waitForFunction(() => window.__kaburi);
-    check((await page.$$(".note")).length === 0, "note gone after reload");
+    const kept = await page.evaluate(() => window.__kaburi.notes().map((n) => n.text));
+    check(kept.length === 1 && /sk-ant-xxx/.test(kept[0]),
+      "a note survives the navigation a share performs " + JSON.stringify(kept));
+    await dropNotes(page);
+    const fresh = await ctx.browser().newContext({ viewport: { width: 412, height: 900 } });
+    await fresh.addInitScript(() => { window.__noSW = true; });
+    const fp = await fresh.newPage();
+    await fp.goto(base + "/");
+    await fp.waitForFunction(() => window.__kaburi);
+    check((await fp.$$(".note")).length === 0, "a new tab starts with no notes: they never leave the one that made them");
+    await fresh.close();
 
     check(errors.length === 0, "no console errors: " + JSON.stringify(errors));
     await ctx.close();
