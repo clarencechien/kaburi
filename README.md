@@ -98,6 +98,36 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 > 寫測試時踩到一個坑：光清 `sessionStorage` 沒有用，因為接著的 `reload()` 會先觸發 `pagehide`，把還活著的陣列原封不動寫回去。要連記憶體裡的陣列一起清。
 
+## 四個入口
+
+| 入口 | 給的是什麼 | 要資料夾權限嗎 | 改名 |
+| --- | --- | --- | --- |
+| **檯面**（選一個工作資料夾） | 目錄 handle | 要 | 有 |
+| **開啟**（狀態列的按鈕，`showOpenFilePicker`） | 單檔 handle | **不用** | 無（loose） |
+| **系統「開啟方式」**（`file_handlers` + `launchQueue`） | 單檔 handle | 不用 | 無（除非就在資料夾裡） |
+| **分享選單**（share target） | `File`（副本） | 要，除非走「開啟」退路 | 落地之後有 |
+
+### 各平台實際狀態
+
+| 入口 | Win11 / ChromeOS 桌機 | Android |
+| --- | --- | --- |
+| 檯面 | 零點擊（Chrome 122 持久權限） | **不通**：存起來的把手要不回來 |
+| 開啟 | 可用 | **可用（已實機確認：能開、能存回原檔）** |
+| 系統「開啟方式」 | 可用 | 沒有這個機制（WebAPK 不實作 File Handling API） |
+| 分享選單 | 可用（app 視窗裡零點擊） | **不通**（見下面 Share target 一節） |
+
+**Android 上實際能幹活的是「開啟」這一條。**它從頭到尾沒碰過資料夾把手，選擇器回來的 handle 能讀也能寫。
+
+## 開啟：app 裡的開檔按鈕
+
+狀態列右邊的「開啟」（`showOpenFilePicker`）是**唯一不需要資料夾權限的入口**，沒選過資料夾也能用。選擇器回來的是真的 handle：
+
+- 不複製、就地開，Save 存回你點的那個原檔（loose，改名關閉，存檔前多要一次 readwrite 權限，就在 Save 點下去的那個手勢裡）
+- 點到的檔案如果就在工作資料夾裡，`isSameEntry` 會認出來，當成檯面上的正常檔案開（改名還在）
+- 沒下 `types` 過濾：Android 的選擇器給了過濾會藏掉太多東西，類型交給 `typeOf` 事後判斷，不認得的副檔名當純文字開，不是 UTF-8 就只給看
+
+Android 上資料夾把手要不回來的時候，這是真的能幹活的那條路。
+
 ## 從 OS「開啟方式」進來的檔案
 
 **不複製到工作資料夾**，就地開啟：
@@ -107,27 +137,9 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 不先複製的理由：open with 給的是真的 handle，存回去就是存回你點的那個原檔。先複製再開的話你改的是副本，**原檔會默默變成舊的**，那違反「存回原檔」。
 
-### 開啟：app 裡的開檔按鈕
+### 註冊了什麼，以及為什麼 Android 看不到
 
-狀態列右邊的「開啟」（`showOpenFilePicker`）是**唯一不需要資料夾權限的入口**，沒選過資料夾也能用。選擇器回來的是真的 handle：
-
-- 不複製、就地開，Save 存回你點的那個原檔（loose，改名關閉，存檔前多要一次 readwrite 權限，就在 Save 點下去的那個手勢裡）
-- 點到的檔案如果就在工作資料夾裡，`isSameEntry` 會認出來，當成檔台上的正常檔案開（改名還在）
-- 沒下 `types` 過濾：Android 的選擇器給了過濾會藏掉太多東西，類型交給 `typeOf` 事後判斷，不認得的副檔名當純文字開，不是 UTF-8 就只給看
-
-Android 上資料夾把手要不回來的時候，這是真的能幹活的那條路。
-
-### 哪些平台真的有「開啟方式」
-
-`file_handlers` 是**桌面專用**的。manifest 裡十個副檔名（`.md .markdown .html .htm .txt .log .json .csv .yaml .yml`）全都註冊了，但註冊只在支援的平台上生效：
-
-| 平台 | 從檔案管理員「開啟方式」 |
-| --- | --- |
-| Windows / ChromeOS / Linux 桌機（安裝成 PWA） | 有 |
-| Android | **完全沒有**——Chrome 的 WebAPK 不實作 File Handling API，任何副檔名都不會出現 |
-| iOS / Safari / Firefox | 沒有（沒實作） |
-
-所以 Android 上看不到 html / md，**不是 manifest 註冊寫錯**，是那個平台沒有這個機制。Android 的替代路徑是**分享選單**（share target 有實作），代價是分享給的是副本不是 handle，會落進工作資料夾。
+manifest 裡十個副檔名（`.md .markdown .html .htm .txt .log .json .csv .yaml .yml`）全都註冊了，但 `file_handlers` 是**桌面專用**的 API。Android 上看不到 html / md，**不是 manifest 註冊寫錯**，是 Chrome 的 WebAPK 根本沒實作這個機制，任何副檔名都不會出現。iOS / Safari / Firefox 也沒有。
 
 桌機上如果該有卻沒有：註冊是**安裝當下**寫進 OS 的，manifest 後來加的副檔名要**重裝一次** PWA 才會重新註冊；另外 Chrome 第一次用 app 開檔案會問一次，當時按了不允許就不會關聯。
 
@@ -137,14 +149,16 @@ Android 上資料夾把手要不回來的時候，這是真的能幹活的那條
 
 安裝成 PWA 後出現在系統分享選單，只接 md / html / txt 與純文字。
 
+> **現況：Android 上這條路不通。**phase 2 當時實機驗過（§10 的 1–5 全過，分享 `.md` 會落進資料夾），後來再驗就不行了，原因沒查出來——資料夾授權那段怎麼點都回不來，下面的兩道退路也沒把它救回來。**決定不追**：Android 上要開一份檔就用狀態列的「開啟」，那條已經驗過能開能存。這一節以下描述的是設計與桌機上的行為。
+
 - 檔案 → 寫進工作資料夾、出現在檯面最上面，不自動開啟。同名自動加 `-2`，不跳確認框。
 - 純文字／網址 → 開一張便條，切到便條分頁，不落地。
 - 流程：SW 攔 `POST /share`（只認導覽式請求），產生一組不可猜的 token 一併寫進 payload，303 到 `/?share-target=<token>`；前景 `handleShare()` 只有在網址帶的 token 與 payload 裡的相符時才取用，分流、清 cache、把網址洗回 `/`。任何其他啟動看到殘留就直接丟掉，不會留著等人來取。
 - 權限：在安裝的 app 視窗裡（standalone）且資料夾權限還在就直接落，零點擊；權限不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
 - **Android 分享檔案每次都要點一次授權，是預期行為。**Android 沒有持久的檔案系統權限，而且每次分享啟動都是全新的瀏覽環境，從 IndexedDB 撈回來的資料夾把手一定是 `prompt`。分享進來的檔案本身不需要權限，但要把它寫進工作資料夾就需要，所以橫幅一定會出現。桌機（已安裝、Chrome 122+）才有免點的持久權限。
 - **授權沒過不會再問第二次（無限 auth 迴圈）**。Android 上 `requestPermission()` 有時候怎麼點都回不了 `granted`——存在 IndexedDB 的把手背後是一個 SAF 的 `content://`，進程死過之後沒有 API 能不開選擇器就把它要回來。舊版本每點一次就重試一次同樣的呼叫，分享橫幅就永遠停在那裡。現在被拒絕一次就記住，**按鈕改成「重新選資料夾」**，下一點直接開資料夾選擇器（`startIn` 就是原來那個資料夾）。選完 `useDir()` 會把等在橫幅上的檔案接著落下去。最多兩下，不會有第三次。
-- **等待中的分享擐得過 reload。**洗網址是「消耗 payload」的一部分，不是「讀到 payload」的一部分：檔案還在橫幅上等點的時候，`?share-target=<token>` 留在網址列。Android 在權限對話框或資料夾選擇器背後把整個 activity 重建掉的時候，重新載入還找得到這筆分享，而不是默默丟掉。落完、或者 payload 被丟掉，網址才洗回 `/`。
-- **資料夾真的回不來時，分享還是開得起來。**第一下還是給資料夾（「存到 X」）——分享進來的檔本來就該落在檔台上。授權被拒之後，橫幅改成「開啟」：直接把分享的位元組讀進檔台，**不寫任何地方**。這份檔沒有 handle，`Save` 改走 `showSaveFilePicker` 讓你指定位置，存完就拿到 handle，之後是一般的存檔。整條路從頭到尾沒碰過資料夾權限。
+- **等待中的分享撐得過 reload。**洗網址是「消耗 payload」的一部分，不是「讀到 payload」的一部分：檔案還在橫幅上等點的時候，`?share-target=<token>` 留在網址列。Android 在權限對話框或資料夾選擇器背後把整個 activity 重建掉的時候，重新載入還找得到這筆分享，而不是默默丟掉。落完、或者 payload 被丟掉，網址才洗回 `/`。
+- **資料夾真的回不來時，分享還是開得起來。**第一下還是給資料夾（「存到 X」）——分享進來的檔本來就該落在檯面上。授權被拒之後，橫幅改成「開啟」：直接把分享的位元組讀進檯面，**不寫任何地方**。這份檔沒有 handle，`Save` 改走 `showSaveFilePicker` 讓你指定位置，存完就拿到 handle，之後是一般的存檔。整條路從頭到尾沒碰過資料夾權限。
   - 只在**單一檔案**且 `showSaveFilePicker` 存在時出現；多檔還是要資料夾（一次只能拿一個位置，沒有誠實的多檔做法）。
   - 沒有 `showSaveFilePicker` 的環境，這份檔開成**只能看**——不讓人打了半天才發現沒地方存。
 - **兩道防線擋跨站 POST**：任何網站都能用表單 POST 到 `/share`，SW 分不出來源。
@@ -266,7 +280,7 @@ phase 3 也許不該是「Kaburi 長出發佈功能」，而該是「**imitator 
 
 ## 現況與待辦
 
-**已做**：草模全部功能、真實資料夾（把手存 IndexedDB、重新授權、`move()` 改名 + copy+delete 退路、覆蓋防護、mtime 下檯清單）、便條純記憶體、app / tablet 佈局、桌機 PWA 的 window-controls-overlay、file_handlers + launchQueue、離線、Workers 部署與 dev domain 關閉、Phase 2 share target、鍵盤與螢幕閱讀器路徑。兩輪資安審查跑完，沒有未處理的發現。
+**已做**：草模全部功能、真實資料夾（把手存 IndexedDB、重新授權、`move()` 改名 + copy+delete 退路、覆蓋防護、mtime 下檯清單）、便條純記憶體、app / tablet 佈局、桌機 PWA 的 window-controls-overlay、file_handlers + launchQueue、離線、Workers 部署與 dev domain 關閉、Phase 2 share target、`showOpenFilePicker` 的「開啟」入口、鍵盤與螢幕閱讀器路徑。兩輪資安審查跑完，沒有未處理的發現。
 
 **已實機確認**
 
@@ -275,7 +289,9 @@ phase 3 也許不該是「Kaburi 長出發佈功能」，而該是「**imitator 
 | Win11 / ChromeOS 安裝成 PWA、開檔、改、存 | 通過 |
 | **資料夾授權：桌機安裝的 PWA** | **零點擊。**Chrome 122 的持久權限把授權記在設定檔裡，重開時直接回 `granted`。經過後續幾輪改動仍然成立，share target 也是零點擊 |
 | **資料夾授權：Android** | **每次文件重新建立就要點一下**，分頁與安裝的 PWA 沒有差別。授權跟著文件走，Android 沒有持久權限這一層，網頁端沒有 API 能繞過去。<br>會觸發：手動 refresh、從最近使用清單滑掉再開、系統回收背景後再開。<br>不會觸發：切到別的 app 再切回來（文件還活著）、app 內部的開檔／存檔／改名／下檯。<br>所以一段連續的工作只在開頭付一次成本。整個畫面任一處點下去都算授權，不用瞄準按鈕 |
-| share target（phase 2 §10 的 1–5） | 通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
+| share target（phase 2 §10 的 1–5） | 當時通過：分享 `.md` 落進資料夾、中文檔名正確、同名變 `-2`、文字變便條、分享照片不出現 Kaburi |
+| **share target：Android，2026-09 再驗** | **不通。**資料夾授權怎麼點都回不來，「重新選資料夾」與「開啟」兩道退路也沒救回來。原因沒查出來，**決定不追**——Android 上改用「開啟」 |
+| **「開啟」按鈕：Android** | **通過。**選一份 md、改內容、存回原檔都成立。這是 Android 上唯一整條走得通的入口 |
 
 **踩過的坑**（交接文件 §7 沒有的，都有測試守著）
 
@@ -295,7 +311,8 @@ phase 3 也許不該是「Kaburi 長出發佈功能」，而該是「**imitator 
 - 已安裝的 PWA 按全螢幕鍵，`display-mode: fullscreen` 是否切到 tablet mode
 - ChromeOS 檔案 app「開啟方式」點 `.md` 能否直接進來（file_handlers）
 - Windows 1280 / 1536 / 1920 確認沒有水平捲軸（本機只用 Linux Chromium 跑過同一個判斷式）
-- share target 在 ChromeOS 與 Windows 各跑一次（Android 已驗）；分享後直接關掉 app 再開，確認沒殘留、沒重複落檔
+- share target 在 ChromeOS 與 Windows 各跑一次（Android 已經確定不通，不再追）；分享後直接關掉 app 再開，確認沒殘留、沒重複落檔
+- 「開啟」在 Win11 / ChromeOS 各跑一次（Android 已驗過能開能存）
 
 **backlog**（照交接文件，下個 phase 才碰）
 
@@ -304,7 +321,9 @@ phase 3 也許不該是「Kaburi 長出發佈功能」，而該是「**imitator 
 | 手動切換 app / tablet 的 chip | 等全螢幕鍵實機驗完 | 切不動才補，存 `kaburi.layout` |
 | 推上 imitator | **不做**（結論是換邊） | 卡在 imitator 沒有 CORS 且那是刻意的；而最好的解法（imitator 的 PWA 自己讀檔）Kaburi 一行都不用改。完整理由見上面「Phase 3 候選」一節 |
 
-**不做**：開資料夾外的檔案、多資料夾、刪檔、搜尋／標籤／版本／同步、便條加 AI、抽共用 render 元件。
+**不做**：多資料夾、刪檔、搜尋／標籤／版本／同步、便條加 AI、抽共用 render 元件。
+
+> 「開資料夾外的檔案」本來在這一列。Android 上資料夾那條路走不通之後它變成必要，已經做了——見上面「開啟」一節。
 
 ## 本機
 
