@@ -5,6 +5,7 @@ var $ = function (i) { return document.getElementById(i); };
 var root = document.documentElement;
 var HAS_FS = typeof window.showDirectoryPicker === "function";
 var HAS_OPEN = typeof window.showOpenFilePicker === "function";
+var HAS_SAVE = typeof window.showSaveFilePicker === "function";
 var LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 
 /* js: i18n */
@@ -38,6 +39,8 @@ var STR = {
   loose: "Opened from outside the folder — rename is off.",
   fullscreen: "Fullscreen", top: "Top",
   openOne: "Open", openOneHint: "Open one file from anywhere. Not copied — Save goes back to that file.",
+  orphan: "Shared, not saved anywhere yet — Save picks where it goes.",
+  savedAs: "Saved as %s",
   intakeTo: "Save to %s", intakePick: "Choose a folder", intakeOne: "1 file shared in", intakeN: "%n files shared in",
   intakeText: "Text shared in", intakeNote: "Keep as note",
   landed: "On the counter: %s", landedN: "%n on the counter"},
@@ -70,6 +73,8 @@ var STR = {
   loose: "從資料夾外開的檔案，不能改名。",
   fullscreen: "全螢幕", top: "回頂端",
   openOne: "開啟", openOneHint: "開資料夾外面的一份檔。不複製，存回去就是那個原檔。",
+  orphan: "分享進來的，還沒落到任何地方。按「存」選位置。",
+  savedAs: "存成 %s",
   intakeTo: "存到 %s", intakePick: "選一個工作資料夾", intakeOne: "分享進來 1 份", intakeN: "分享進來 %n 份",
   intakeText: "分享進來一段文字", intakeNote: "開成便條",
   landed: "已上檯 %s", landedN: "已上檯 %n 份"}
@@ -488,7 +493,7 @@ function paintList() {
 /* js: stage */
 var cur = null, mode = "view", dirty = false;
 async function openFile(f) {
- if (!(cur === f && dirty)) {
+ if (f.handle && !(cur === f && dirty)) {
   if (f.size > MAX_OPEN) { flash(t("tooBig")); return; }   /* before the read, not after */
   try {
    var d = decodeFile(await (await f.handle.getFile()).arrayBuffer());
@@ -499,7 +504,8 @@ async function openFile(f) {
  mode = f.readonly ? "view" : (f.type ? f.type.open : "edit");
  showTab("files");
  $("stage").classList.add("open"); render();
- if (f.loose) flash(t("loose"));
+ if (!f.handle) flash(t("orphan"));
+ else if (f.loose) flash(t("loose"));
 }
 function closeStage() { $("stage").classList.remove("open"); }
 function toTop() {
@@ -517,7 +523,7 @@ function render() {
  $("vlbl").textContent = t(mode);
  $("vtog").disabled = !!f.readonly;   /* not just hiding Save: nobody should type before finding out */
  $("save").textContent = t("save");
- $("save").hidden = !(mode === "edit" && dirty) || !!f.readonly;
+ $("save").hidden = !!f.readonly || !((mode === "edit" && dirty) || !f.handle);
  var body = $("sbody"); body.textContent = "";
  $("totop").hidden = mode !== "edit";
 
@@ -729,8 +735,26 @@ async function newFile() {
  flash(t("newFile"));
 }
 
+/* A file that came in with no handle — a share opened without the folder — has nowhere to go until
+   the picker says where. On Android this is the only write that never touches the folder handle. */
+async function saveAs(f) {
+ var h;
+ try { h = await window.showSaveFilePicker({suggestedName: f.name, id: "kaburi-file"}); }
+ catch (e) { if (e && e.name !== "AbortError") flash(t("failed", errMsg(e))); return; }
+ try {
+  var w = await h.createWritable(); await w.write(f.body); await w.close();
+  var file = await h.getFile();
+  f.handle = h; f.name = h.name || f.name; f.ts = file.lastModified; f.size = file.size;
+  f.bom = false; f.eol = "\n";                 /* what we just wrote, not what was shared */
+  dirty = false; $("save").hidden = true;
+  vibrate(8); flash(t("savedAs", f.name)); render(); paintList();
+  if (dirHandle) await scan();                 /* it may have landed in the working folder after all */
+ } catch (e) { flash(t("failed", errMsg(e))); }
+}
+
 async function save() {
- var f = cur; if (!f || !dirty || f.readonly) return;
+ var f = cur; if (!f || f.readonly || (!dirty && f.handle)) return;
+ if (!f.handle) return saveAs(f);
  try {
   if (f.loose && f.handle.requestPermission) {
    var p = await f.handle.requestPermission({mode: "readwrite"});
@@ -989,7 +1013,9 @@ function paintIntake() {
  names.appendChild(head);
  intake.names.slice(0, 4).forEach(function (n) { var b = document.createElement("b"); b.textContent = n; names.appendChild(b); });
  $("intakeBtn").textContent = !dirHandle ? t("intakePick")
-  : (reauthFailed ? t("repick") : t("intakeTo", dirHandle.name || "/"));
+  : canOpenShared() ? t("openOne")
+  : reauthFailed ? t("repick")
+  : t("intakeTo", dirHandle.name || "/");
 }
 
 async function intakeShare(meta) {
@@ -1040,11 +1066,35 @@ async function landFiles() {
  }
 }
 
+/* The escape hatch: read the shared bytes into the stage without writing them anywhere. The file has
+   no handle until Save asks the picker for one, so nothing here needs folder permission — which is the
+   whole point on a device where the folder handle cannot be re-granted. */
+async function openShared() {
+ if (!intake || intake.count !== 1) return;
+ var name = intake.names[0], buf = null;
+ try {
+  var c = await caches.open(SHARE_CACHE);
+  var r = await c.match("/__share/file-0");
+  if (r) buf = await r.arrayBuffer();
+ } catch (e) {}
+ if (!buf) { flash(t("failed", "share")); intake = null; paintIntake(); await clearShare(); return; }
+ intake = null; paintIntake(); await clearShare();
+ if (buf.byteLength > MAX_OPEN) { flash(t("tooBig")); return; }
+ var d = decodeFile(buf);
+ await openFile({name: name, type: typeOf(name) || TYPES.txt, ts: Date.now(), size: buf.byteLength,
+  body: d.body, bom: d.bom, eol: d.eol, readonly: d.readonly || !HAS_SAVE, handle: null, loose: true});
+}
+
 function intakeAction() {
  if (intake && !intake.count) return landFiles();     /* text only: nothing to authorize */
  if (!dirHandle) return pickFolder();
- if (folderState === "needauth") return reauth();
+ if (folderState === "needauth") return canOpenShared() ? openShared() : reauth();
  return landFiles();
+}
+/* Only after the folder has actually refused: the folder is still the right home for a shared file,
+   so it gets the first tap. The second one stops trying and just opens the thing. */
+function canOpenShared() {
+ return reauthFailed && HAS_SAVE && !!intake && intake.count === 1;
 }
 
 async function handleShare() {
