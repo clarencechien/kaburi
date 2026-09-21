@@ -107,6 +107,16 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 不先複製的理由：open with 給的是真的 handle，存回去就是存回你點的那個原檔。先複製再開的話你改的是副本，**原檔會默默變成舊的**，那違反「存回原檔」。
 
+### 開啟：app 裡的開檔按鈕
+
+狀態列右邊的「開啟」（`showOpenFilePicker`）是**唯一不需要資料夾權限的入口**，沒選過資料夾也能用。選擇器回來的是真的 handle：
+
+- 不複製、就地開，Save 存回你點的那個原檔（loose，改名關閉，存檔前多要一次 readwrite 權限，就在 Save 點下去的那個手勢裡）
+- 點到的檔案如果就在工作資料夾裡，`isSameEntry` 會認出來，當成檔台上的正常檔案開（改名還在）
+- 沒下 `types` 過濾：Android 的選擇器給了過濾會藏掉太多東西，類型交給 `typeOf` 事後判斷，不認得的副檔名當純文字開，不是 UTF-8 就只給看
+
+Android 上資料夾把手要不回來的時候，這是真的能幹活的那條路。
+
 ### 哪些平台真的有「開啟方式」
 
 `file_handlers` 是**桌面專用**的。manifest 裡十個副檔名（`.md .markdown .html .htm .txt .log .json .csv .yaml .yml`）全都註冊了，但註冊只在支援的平台上生效：

@@ -140,6 +140,15 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 }
 .scope:active{background:var(--raise)}
 [data-lang="zh"] .scope{font-family:var(--sans);font-size:0.875rem}
+/* one file from outside the folder — the only entry that needs no folder permission at all */
+.opener{
+  flex:none;margin-left:9px;font-family:var(--mono);font-size:0.8125rem;letter-spacing:.04em;
+  color:var(--accent);padding:4px 11px;border-radius:8px;
+  border:1px solid color-mix(in srgb,var(--accent) 38%,transparent);
+  background:color-mix(in srgb,var(--accent) 10%,transparent);
+}
+.opener:active{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+[data-lang="zh"] .opener{font-family:var(--sans);font-size:0.875rem;letter-spacing:.06em}
 
 /* css: intake — shared files waiting for the folder; a temporary strip below the status bar */
 .intake{

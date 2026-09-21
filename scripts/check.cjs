@@ -489,6 +489,46 @@ async function seed(page) {
     check(await page.evaluate(() => window.__picks === 1), "the next tap goes to the folder picker instead of repeating the refusal");
     check(await page.evaluate(() => { window.__kaburi.setState("needauth"); const ok = document.getElementById("reauth").textContent === "Re-authorize"; window.__kaburi.setState("ready"); return ok; }),
       "picking a folder clears the refusal");
+
+    /* the in-app picker: one file from anywhere, no folder permission in the way */
+    check(!(await page.$eval("#openBtn", (e) => e.hidden)), "the open button is there whatever the folder state");
+    await page.evaluate(async () => {
+      const d = await navigator.storage.getDirectory();
+      const sub = await d.getDirectoryHandle("outside", {create: true});
+      const h = await sub.getFileHandle("outside.md", {create: true});
+      const w = await h.createWritable(); await w.write("# from outside"); await w.close();
+      window.showOpenFilePicker = async () => [h];
+    });
+    await page.click("#openBtn");
+    await page.waitForFunction(() => window.__kaburi.cur() && window.__kaburi.cur().name === "outside.md");
+    check(await page.evaluate(() => window.__kaburi.cur().loose === true && window.__kaburi.cur().body === "# from outside"),
+      "a file from outside the folder opens in place, marked loose");
+    check(await page.$eval("#fname", (e) => e.title) === "Opened from outside the folder — rename is off.",
+      "the name carries the reason rename is off");
+    check(await page.evaluate(async () => await window.__kaburi.rename(window.__kaburi.cur(), "renamed.md") === false),
+      "rename refuses a loose file");
+    check(!(await onDisk()).includes("renamed.md"), "and nothing moved on disk");
+    await page.click("#vtog");
+    await page.fill("#src", "# edited outside");
+    await page.click("#save");
+    await page.waitForFunction(() => document.getElementById("save").hidden);
+    check(await page.evaluate(async () => {
+      const d = await navigator.storage.getDirectory();
+      const sub = await d.getDirectoryHandle("outside");
+      return (await (await (await sub.getFileHandle("outside.md")).getFile()).text()) === "# edited outside";
+    }), "Save on a loose file writes back to that very file, not into the folder");
+    check(!(await onDisk()).includes("outside.md"), "and never lands a copy on the counter");
+    /* the same picker, on a file that is already on the counter: it opens as itself, not as a stray */
+    await page.evaluate(async () => {
+      const d = await navigator.storage.getDirectory();
+      const h = await d.getFileHandle("later.md");
+      window.showOpenFilePicker = async () => [h];
+    });
+    await page.click("#back");
+    await page.click("#openBtn");
+    await page.waitForFunction(() => window.__kaburi.cur() && window.__kaburi.cur().name === "later.md");
+    check(await page.evaluate(() => !window.__kaburi.cur().loose), "a picked file that is already in the folder keeps rename");
+    await page.click("#back");
     await page.click("#tab-files");
 
     /* notes: memory only */
