@@ -529,6 +529,55 @@ async function seed(page) {
     await page.waitForFunction(() => window.__kaburi.cur() && window.__kaburi.cur().name === "later.md");
     check(await page.evaluate(() => !window.__kaburi.cur().loose), "a picked file that is already in the folder keeps rename");
     await page.click("#back");
+
+    /* the last resort: a folder that will not come back at all, and a share that still has to open.
+       Its own context — patching the handle prototype must not leak into the rest of the run. */
+    {
+      const c2 = await browser.newContext({ viewport: { width: 412, height: 900 } });
+      await c2.addInitScript(() => { window.__noSW = true; });
+      const p2 = await c2.newPage();
+      await p2.goto(base + "/");
+      await p2.waitForFunction(() => window.__kaburi);
+      await p2.evaluate(async () => { await window.__kaburi.useDir(await navigator.storage.getDirectory()); });
+      /* from here on the stored folder handle can neither be queried nor re-granted — Android */
+      await c2.addInitScript(() => {
+        FileSystemDirectoryHandle.prototype.queryPermission = async () => "prompt";
+        FileSystemDirectoryHandle.prototype.requestPermission = async () => "prompt";
+      });
+      const tok2 = "tok-" + Math.random().toString(36).slice(2);
+      await p2.evaluate(async (nonce) => {
+        const c = await caches.open("kaburi-share");
+        await c.put("/__share/meta", new Response(JSON.stringify({ count: 1, text: "", at: Date.now(), nonce })));
+        await c.put("/__share/file-0", new Response("# only shared", { headers: { "x-kaburi-name": "shared-only.md" } }));
+      }, tok2);
+      await p2.goto(base + "/?share-target=" + tok2);
+      await p2.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "needauth" && window.__kaburi.intake());
+      check(await p2.$eval("#intakeBtn", (e) => e.textContent) === "Save to /", "a dead folder handle still gets the first tap");
+      await p2.click("#intakeBtn");
+      await p2.waitForFunction(() => document.getElementById("intakeBtn").textContent === "Open");
+      check(!(await p2.evaluate(async () => { const d = await navigator.storage.getDirectory(); const n = []; for await (const [k] of d.entries()) n.push(k); return n; })).includes("shared-only.md"),
+        "the refusal wrote nothing");
+      await p2.click("#intakeBtn");
+      await p2.waitForFunction(() => window.__kaburi.cur() && window.__kaburi.cur().name === "shared-only.md");
+      check(await p2.evaluate(() => window.__kaburi.cur().handle === null && window.__kaburi.cur().body === "# only shared"),
+        "the second tap opens the share itself: its bytes, no handle, no folder");
+      check(await p2.evaluate(async () => !(await caches.has("kaburi-share"))), "and the payload is consumed, not left armed");
+      check(!(await p2.$eval("#save", (e) => e.hidden)), "Save is offered in view mode, because it has nowhere to go yet");
+      check(await p2.$eval("#fname", (e) => e.title) === "Opened from outside the folder — rename is off.", "a share with no home cannot be renamed either");
+      await p2.evaluate(async () => {
+        const d = await navigator.storage.getDirectory();
+        window.showSaveFilePicker = async () => await d.getFileHandle("saved-as.md", {create: true});
+      });
+      await p2.click("#save");
+      await p2.waitForFunction(() => document.getElementById("save").hidden);
+      check(await p2.evaluate(async () => {
+        const d = await navigator.storage.getDirectory();
+        return (await (await (await d.getFileHandle("saved-as.md")).getFile()).text()) === "# only shared";
+      }), "Save asks the picker where it goes and writes there");
+      check(await p2.evaluate(() => window.__kaburi.cur().handle !== null && window.__kaburi.cur().name === "saved-as.md"),
+        "the file keeps the handle it was given, so the next Save is a plain save");
+      await c2.close();
+    }
     await page.click("#tab-files");
 
     /* notes: memory only */
