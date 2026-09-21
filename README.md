@@ -42,7 +42,7 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - **`_headers`**：CSP（`script-src 'self'`，沒有 inline script）、`frame-ancestors 'none'`、HSTS、`nosniff`、`Referrer-Policy: no-referrer`、`Permissions-Policy` 關掉相機／麥克風／定位、`X-Robots-Tag: noindex`。
 - **只有 markdown renderer 用 `innerHTML`**，它自己會跳脫；`plain` / `json` / `table` 三個 renderer 一律 `textContent`。列表色帶的 class 也是塞進 `innerHTML` 的，那個值必須永遠來自寫死的 `TYPES` 表
 - **HTML 預覽** 走 `srcdoc` + `sandbox=""`。CSP 會被 iframe 繼承，所以預覽裡的 script、外部圖片、外部 CSS 全部不會跑。`allow-scripts` 與 `allow-same-origin` 永遠不能同時給。
-- 沒有後端、沒有 analytics、沒有第三方資源。偏好（主題、語言、下檯清單）在 `localStorage`，資料夾把手在 IndexedDB，便條只在記憶體。
+- 沒有後端、沒有 analytics、沒有第三方資源。偏好（主題、語言、下檯清單、csv 表頭）在 `localStorage`，資料夾把手在 IndexedDB，便條在 `sessionStorage`（分頁關掉就沒，見下）。檔案內容一律不存。
 
 ## 檔案類型
 
@@ -72,6 +72,29 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - 不收 `.svg`（可執行的容器）、二進位、以及 `.sql` `.sh` `.py` 這類——收了下一步就是要語法高亮，定位會滑掉
 
 規格與被否決的選項見 [`docs/filetypes-spec.md`](docs/filetypes-spec.md)。
+
+## 便條為什麼會跨導覽活著
+
+交接文件 §4.7 說便條「不寫磁碟、不進 IndexedDB、不進 localStorage、不同步」，意圖是「**關掉就沒了**」。
+
+但分享進來是一次頂層 POST 導覽——文件被換掉，記憶體裡的陣列就沒了。結果是每分享一段文字，前一張看起來就像被蓋掉，實際上是整個 app 重開了。
+
+所以便條改存 `sessionStorage`：**分頁層級、不落磁碟、不跨分頁、不跨裝置、分頁關掉就消失**。它不在 §4.7 的禁止清單上，而且比原本的行為更貼近那句「關掉就沒了」——舊的行為是「導覽一次就沒了」，比規則本身更嚴格。
+
+寫入時機是 `pagehide` 與 `visibilitychange` 轉 hidden，加上新增與丟棄時。空白的便條不存。
+
+> 寫測試時踩到一個坑：光清 `sessionStorage` 沒有用，因為接著的 `reload()` 會先觸發 `pagehide`，把還活著的陣列原封不動寫回去。要連記憶體裡的陣列一起清。
+
+## 從 OS「開啟方式」進來的檔案
+
+**不複製到工作資料夾**，就地開啟：
+
+- 那個檔案**就在**工作資料夾裡 → 用 `isSameEntry` 認出來，當成檯面上的正常檔案，全部能力都有
+- 在資料夾**外面** → 標記 `loose`，能看、能存回原檔，**改名關閉**（交接文件 §8：單檔 handle 沒有父目錄，copy+delete 的退路做不到），存檔前多要一次權限
+
+不先複製的理由：open with 給的是真的 handle，存回去就是存回你點的那個原檔。先複製再開的話你改的是副本，**原檔會默默變成舊的**，那違反「存回原檔」。
+
+> 這與 share target 不一致——分享是複製進工作資料夾的，因為分享給的是 `File` 不是 handle，沒有原位置可以存回。兩個入口各有理由，但不一致本身記在這裡。
 
 ## Share target（phase 2）
 
