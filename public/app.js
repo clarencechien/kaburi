@@ -4,6 +4,7 @@
 var $ = function (i) { return document.getElementById(i); };
 var root = document.documentElement;
 var HAS_FS = typeof window.showDirectoryPicker === "function";
+var HAS_OPEN = typeof window.showOpenFilePicker === "function";
 var LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 
 /* js: i18n */
@@ -28,7 +29,7 @@ var STR = {
   pickFolder: "Choose a folder",
   pickHint: "Kaburi works on one folder. Pick where your md / html / txt files live.",
   reauth: "Re-authorize", reauthHint: "Folder access needs one tap after reopening.",
-  repick: "Choose the folder again", repickHint: "Re-authorizing did not go through on this device. Pick the same folder again.",
+  repick: "Choose the folder again", repickHint: "Re-authorizing did not go through on this device. Pick the same folder again, or use Open above for a single file.",
   unsupported: "This browser can't open local folders. Use Chrome 132+ or Edge on desktop, ChromeOS or Android.",
   overwrite: "\u201C%s\u201D already exists. Overwrite it?",
   badName: "Keep it .md, .html or .txt — no slashes.",
@@ -36,6 +37,7 @@ var STR = {
   failed: "Failed: %s", denied: "Folder access was not granted.",
   loose: "Opened from outside the folder — rename is off.",
   fullscreen: "Fullscreen", top: "Top",
+  openOne: "Open", openOneHint: "Open one file from anywhere. Not copied — Save goes back to that file.",
   intakeTo: "Save to %s", intakePick: "Choose a folder", intakeOne: "1 file shared in", intakeN: "%n files shared in",
   intakeText: "Text shared in", intakeNote: "Keep as note",
   landed: "On the counter: %s", landedN: "%n on the counter"},
@@ -59,7 +61,7 @@ var STR = {
   pickFolder: "選一個資料夾",
   pickHint: "Kaburi 只處理一個資料夾。選你放 md / html / txt 的地方。",
   reauth: "重新授權", reauthHint: "重開之後要按一下才能再碰資料夾。",
-  repick: "重新選資料夾", repickHint: "這台裝置上重新授權沒過，直接再選一次同一個資料夾。",
+  repick: "重新選資料夾", repickHint: "這台裝置上重新授權沒過，直接再選一次同一個資料夾；或用上面的「開啟」開單一檔案。",
   unsupported: "這個瀏覽器不能開本機資料夾。請用桌機、ChromeOS 或 Android 上的 Chrome 132+ 或 Edge。",
   overwrite: "「%s」已經存在，覆蓋掉它？",
   badName: "只能是 .md、.html、.txt，不能有斜線。",
@@ -67,6 +69,7 @@ var STR = {
   failed: "失敗：%s", denied: "沒有拿到資料夾的權限。",
   loose: "從資料夾外開的檔案，不能改名。",
   fullscreen: "全螢幕", top: "回頂端",
+  openOne: "開啟", openOneHint: "開資料夾外面的一份檔。不複製，存回去就是那個原檔。",
   intakeTo: "存到 %s", intakePick: "選一個工作資料夾", intakeOne: "分享進來 1 份", intakeN: "分享進來 %n 份",
   intakeText: "分享進來一段文字", intakeNote: "開成便條",
   landed: "已上檯 %s", landedN: "已上檯 %n 份"}
@@ -97,6 +100,11 @@ function applyLang() {
  $("stage").dataset.empty = t("pick");
  $("fsBtn").setAttribute("aria-label", t("fullscreen"));
  $("totop").setAttribute("aria-label", t("top"));
+ var ob = $("openBtn");
+ ob.hidden = !HAS_OPEN;
+ ob.textContent = t("openOne");
+ ob.title = t("openOneHint");
+ ob.setAttribute("aria-label", t("openOne") + " — " + t("openOneHint"));
  paintIntake();
  paintStatus(); paintList(); paintNotes();
  if (cur) render();
@@ -1049,23 +1057,36 @@ async function handleShare() {
  if (meta || token) await clearShare();   /* a token with nothing behind it still gets washed off the url */
 }
 
-/* js: file handler — "Open with" from the OS files app */
+/* js: single file handles — the OS "Open with" and the in-app picker land in the same place */
+async function openHandle(h) {
+ var match = null;
+ if (dirHandle) {
+  for (var i = 0; i < FILES.length; i++) {
+   var f = FILES[i];
+   if (f.name === h.name) {
+    try { if (await f.handle.isSameEntry(h)) { match = f; break; } } catch (e) {} } }
+ }
+ if (match) return openFile(match);          /* already on the counter: open it as itself */
+ var file;
+ try { file = await h.getFile(); } catch (e) { flash(t("failed", errMsg(e))); return; }
+ return openFile({name: h.name, type: typeOf(h.name) || TYPES.txt, ts: file.lastModified, size: file.size, handle: h, loose: true});
+}
+
+/* The one door that needs no folder permission: a single handle straight from the picker. On Android,
+   where a stored folder handle cannot always be re-granted, this is the way to actually work on a file.
+   No `types` filter — Android's picker hides too much when one is given; typeOf decides afterwards. */
+async function openLoose() {
+ var hs;
+ try { hs = await window.showOpenFilePicker({multiple: false, id: "kaburi-file"}); }
+ catch (e) { if (e && e.name !== "AbortError") flash(t("failed", errMsg(e))); return; }
+ if (hs && hs[0]) await openHandle(hs[0]);
+}
+
 function bindLaunchQueue() {
  if (!("launchQueue" in window)) return;
- window.launchQueue.setConsumer(async function (params) {
+ window.launchQueue.setConsumer(function (params) {
   if (!params.files || !params.files.length) return;
-  var h = params.files[0];
-  var match = null;
-  if (dirHandle) {
-   for (var i = 0; i < FILES.length; i++) {
-    var f = FILES[i];
-    if (f.name === h.name) {
-     try { if (await f.handle.isSameEntry(h)) { match = f; break; } } catch (e) {} } }
-  }
-  if (match) return openFile(match);
-  var file;
-  try { file = await h.getFile(); } catch (e) { flash(t("failed", errMsg(e))); return; }
-  openFile({name: h.name, type: typeOf(h.name) || TYPES.txt, ts: file.lastModified, size: file.size, handle: h, loose: true});
+  openHandle(params.files[0]);
  });
 }
 
@@ -1087,6 +1108,7 @@ function boot() {
  window.addEventListener("resize", applyLayout);
 
  $("wd").addEventListener("click", pickFolder);
+ $("openBtn").addEventListener("click", openLoose);
  $("addFile").addEventListener("click", newFile);
  $("scope").addEventListener("click", function () { expanded = !expanded; paintList(); });
  $("vtog").addEventListener("click", function () {
