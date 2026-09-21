@@ -132,6 +132,8 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - 流程：SW 攔 `POST /share`（只認導覽式請求），產生一組不可猜的 token 一併寫進 payload，303 到 `/?share-target=<token>`；前景 `handleShare()` 只有在網址帶的 token 與 payload 裡的相符時才取用，分流、清 cache、把網址洗回 `/`。任何其他啟動看到殘留就直接丟掉，不會留著等人來取。
 - 權限：在安裝的 app 視窗裡（standalone）且資料夾權限還在就直接落，零點擊；權限不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
 - **Android 分享檔案每次都要點一次授權，是預期行為。**Android 沒有持久的檔案系統權限，而且每次分享啟動都是全新的瀏覽環境，從 IndexedDB 撈回來的資料夾把手一定是 `prompt`。分享進來的檔案本身不需要權限，但要把它寫進工作資料夾就需要，所以橫幅一定會出現。桌機（已安裝、Chrome 122+）才有免點的持久權限。
+- **授權沒過不會再問第二次（無限 auth 迴圈）**。Android 上 `requestPermission()` 有時候怎麼點都回不了 `granted`——存在 IndexedDB 的把手背後是一個 SAF 的 `content://`，進程死過之後沒有 API 能不開選擇器就把它要回來。舊版本每點一次就重試一次同樣的呼叫，分享橫幅就永遠停在那裡。現在被拒絕一次就記住，**按鈕改成「重新選資料夾」**，下一點直接開資料夾選擇器（`startIn` 就是原來那個資料夾）。選完 `useDir()` 會把等在橫幅上的檔案接著落下去。最多兩下，不會有第三次。
+- **等待中的分享擐得過 reload。**洗網址是「消耗 payload」的一部分，不是「讀到 payload」的一部分：檔案還在橫幅上等點的時候，`?share-target=<token>` 留在網址列。Android 在權限對話框或資料夾選擇器背後把整個 activity 重建掉的時候，重新載入還找得到這筆分享，而不是默默丟掉。落完、或者 payload 被丟掉，網址才洗回 `/`。
 - **兩道防線擋跨站 POST**：任何網站都能用表單 POST 到 `/share`，SW 分不出來源。
   1. **token 綁定**：payload 只能被產生它的那次啟動取用。攻擊者用隱藏 iframe 偷偷寄放（`frame-ancestors 'none'` 會擋掉畫面，但 cache 已經寫進去了），也沒辦法之後誘導使用者開 `/?share-target=1` 把它取出來。
   2. **display-mode 門檻**：真正的分享會開在 app 視窗，跨站 POST 只會落在一般分頁，分頁裡一律要點一下才寫。

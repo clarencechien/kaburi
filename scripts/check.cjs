@@ -75,7 +75,9 @@ async function seed(page) {
 (async () => {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch();
+  /* KABURI_CHROME lets the rig run against a chromium the sandbox already has, when the
+     pinned playwright build is not downloadable. */
+  const browser = await chromium.launch(process.env.KABURI_CHROME ? {executablePath: process.env.KABURI_CHROME} : {});
 
   /* 1. headers reach the browser, no console errors, CSP allows the app + srcdoc preview */
   {
@@ -105,8 +107,11 @@ async function seed(page) {
       const d = await navigator.storage.getDirectory(); const n = [];
       for await (const [k] of d.entries()) n.push(k); return n;
     });
-    const frame = page.frames().find((f) => f.parentFrame() && f.url() === "about:srcdoc");
-    await page.waitForTimeout(300);
+    /* by element, not by url: a sandboxed srcdoc frame reports "about:srcdoc" or "" depending on the build */
+    const frame = await (await page.$("iframe.preview")).contentFrame();
+    /* wait for the srcdoc document itself, not a fixed delay: the frame object exists before it parses */
+    if (frame) await frame.waitForFunction(() => document.body && document.body.innerText.trim() !== "").catch(() => {});
+    await page.waitForTimeout(200);
     const txt = frame ? await frame.evaluate(() => document.body.innerText).catch(() => "") : "";
     check(/preview via srcdoc/.test(txt) && !/PWNED/.test(txt), "html preview rendered in sandbox, script blocked (got: " + JSON.stringify(txt) + ")");
     await back(page);
@@ -409,14 +414,20 @@ async function seed(page) {
     let tok = await park([["scratch.txt", "shared body"], ["my notes 2.md", "# spaced"], ["../../evil<>.md", "x"], ["noext", "y"]], "");
     /* headless Chromium is a plain tab: files must wait for a tap even though permission is held */
     await page.goto(base + "/?share-target=" + tok);
-    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && location.search === "" && window.__kaburi.intake());
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && window.__kaburi.intake());
     check(!(await page.$eval("#intake", (e) => e.hidden)), "browser tab: shared files wait on the intake strip, no unattended write");
     check(!(await onDisk()).includes("scratch-2.txt"), "nothing written before the tap");
+    check(await page.evaluate((t) => location.search === "?share-target=" + t, tok), "a waiting payload keeps its launch token on the url");
+    await page.reload();
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.state() === "ready" && window.__kaburi.intake());
+    check(!(await page.$eval("#intake", (e) => e.hidden)) && !(await onDisk()).includes("scratch-2.txt"),
+      "reloading while the strip waits keeps the share pending, still unwritten");
     await page.click("#intakeBtn");
     await page.waitForFunction(() => !window.__kaburi.intake());
     await page.waitForTimeout(200);
     let disk2 = await onDisk();
     check(disk2.includes("scratch-2.txt"), "tap on the strip lands the files");
+    check(await page.evaluate(() => location.search === ""), "landing washes the token off the url");
     /* installed app window: zero-click */
     await page.evaluate(async () => { const d = await navigator.storage.getDirectory(); for (const n of ["scratch-2.txt", "my notes 2.md", "evil.md", "noext.md"]) { try { await d.removeEntry(n); } catch (e) {} } });
     await page.addInitScript(() => { window.__kaburiDisplayMode = "standalone"; });
@@ -451,12 +462,33 @@ async function seed(page) {
     await page.evaluate(async () => { indexedDB.deleteDatabase("kaburi"); });
     tok = await park([["later.md", "later"]], "");
     await page.goto(base + "/?share-target=" + tok);
-    await page.waitForFunction(() => window.__kaburi && location.search === "" && window.__kaburi.intake());
+    await page.waitForFunction(() => window.__kaburi && window.__kaburi.intake());
     check(!(await page.$eval("#intake", (e) => e.hidden)) && /later\.md/.test(await page.$eval("#intakeNames", (e) => e.textContent)), "no folder: intake bar lists the file and waits");
     check(await page.evaluate(async () => await caches.has("kaburi-share")), "cache kept while waiting for a folder");
     await page.evaluate(async () => { await window.__kaburi.useDir(await navigator.storage.getDirectory()); });
     await page.waitForFunction(() => !window.__kaburi.intake());
     check((await onDisk()).includes("later.md"), "choosing a folder lands the waiting file");
+    check(await page.evaluate(() => location.search === ""), "landing after the folder is chosen washes the token too");
+
+    /* a re-authorization that comes back without a grant — Android on every share launch — must not
+       offer the same failing call again, or the strip becomes an endless authorize loop */
+    await page.evaluate(async () => {
+      const d = await navigator.storage.getDirectory();
+      d.requestPermission = async () => "prompt";
+      window.__picks = 0;
+      window.showDirectoryPicker = async () => { window.__picks++; return d; };
+      await window.__kaburi.useDir(d);
+      window.__kaburi.setState("needauth");
+    });
+    check(await page.$eval("#reauth", (e) => e.textContent) === "Re-authorize", "needauth pane offers Re-authorize");
+    await page.click("#reauth");
+    await page.waitForFunction(() => document.getElementById("reauth").textContent === "Choose the folder again");
+    check(await page.evaluate(() => window.__picks === 0), "a refused re-authorization does not open the picker behind your back");
+    await page.click("#reauth");
+    await page.waitForFunction(() => window.__kaburi.state() === "ready");
+    check(await page.evaluate(() => window.__picks === 1), "the next tap goes to the folder picker instead of repeating the refusal");
+    check(await page.evaluate(() => { window.__kaburi.setState("needauth"); const ok = document.getElementById("reauth").textContent === "Re-authorize"; window.__kaburi.setState("ready"); return ok; }),
+      "picking a folder clears the refusal");
     await page.click("#tab-files");
 
     /* notes: memory only */
