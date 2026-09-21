@@ -107,6 +107,20 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 
 不先複製的理由：open with 給的是真的 handle，存回去就是存回你點的那個原檔。先複製再開的話你改的是副本，**原檔會默默變成舊的**，那違反「存回原檔」。
 
+### 哪些平台真的有「開啟方式」
+
+`file_handlers` 是**桌面專用**的。manifest 裡十個副檔名（`.md .markdown .html .htm .txt .log .json .csv .yaml .yml`）全都註冊了，但註冊只在支援的平台上生效：
+
+| 平台 | 從檔案管理員「開啟方式」 |
+| --- | --- |
+| Windows / ChromeOS / Linux 桌機（安裝成 PWA） | 有 |
+| Android | **完全沒有**——Chrome 的 WebAPK 不實作 File Handling API，任何副檔名都不會出現 |
+| iOS / Safari / Firefox | 沒有（沒實作） |
+
+所以 Android 上看不到 html / md，**不是 manifest 註冊寫錯**，是那個平台沒有這個機制。Android 的替代路徑是**分享選單**（share target 有實作），代價是分享給的是副本不是 handle，會落進工作資料夾。
+
+桌機上如果該有卻沒有：註冊是**安裝當下**寫進 OS 的，manifest 後來加的副檔名要**重裝一次** PWA 才會重新註冊；另外 Chrome 第一次用 app 開檔案會問一次，當時按了不允許就不會關聯。
+
 > 這與 share target 不一致——分享是複製進工作資料夾的，因為分享給的是 `File` 不是 handle，沒有原位置可以存回。兩個入口各有理由，但不一致本身記在這裡。
 
 ## Share target（phase 2）
@@ -117,6 +131,7 @@ dashboard 的 Build 設定用預設值即可（Build command 留空，Deploy com
 - 純文字／網址 → 開一張便條，切到便條分頁，不落地。
 - 流程：SW 攔 `POST /share`（只認導覽式請求），產生一組不可猜的 token 一併寫進 payload，303 到 `/?share-target=<token>`；前景 `handleShare()` 只有在網址帶的 token 與 payload 裡的相符時才取用，分流、清 cache、把網址洗回 `/`。任何其他啟動看到殘留就直接丟掉，不會留著等人來取。
 - 權限：在安裝的 app 視窗裡（standalone）且資料夾權限還在就直接落，零點擊；權限不在就出現「存到 資料夾」橫幅，點一下才寫；完全沒選過資料夾則橫幅改「選一個工作資料夾」，選完接著落。等待期間 cache 保留。
+- **Android 分享檔案每次都要點一次授權，是預期行為。**Android 沒有持久的檔案系統權限，而且每次分享啟動都是全新的瀏覽環境，從 IndexedDB 撈回來的資料夾把手一定是 `prompt`。分享進來的檔案本身不需要權限，但要把它寫進工作資料夾就需要，所以橫幅一定會出現。桌機（已安裝、Chrome 122+）才有免點的持久權限。
 - **兩道防線擋跨站 POST**：任何網站都能用表單 POST 到 `/share`，SW 分不出來源。
   1. **token 綁定**：payload 只能被產生它的那次啟動取用。攻擊者用隱藏 iframe 偷偷寄放（`frame-ancestors 'none'` 會擋掉畫面，但 cache 已經寫進去了），也沒辦法之後誘導使用者開 `/?share-target=1` 把它取出來。
   2. **display-mode 門檻**：真正的分享會開在 app 視窗，跨站 POST 只會落在一般分頁，分頁裡一律要點一下才寫。
